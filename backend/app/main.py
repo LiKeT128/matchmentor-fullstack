@@ -37,7 +37,6 @@ async def lifespan(app: FastAPI):
         url = make_url(settings.database_url)
         logger.info(f"Connecting to database at {url.host}:{url.port}")
     except Exception:
-    except Exception:
         logger.error("Could not parse DATABASE_URL")
 
     # Debug: Inspect DB Schema
