@@ -127,6 +127,8 @@ def parse_with_manta(file_path: str) -> Dict[str, Any]:
             "tower_damage": match_data.get("tower_damage", 0),
             "hero_healing": match_data.get("hero_healing", 0),
             "items": match_data.get("items", []),
+            "hero_name": match_data.get("player_hero", "Unknown"), # Ensure hero_name is present
+            "heroes": match_data.get("heroes", []), # Extract heroes list if available
             "item_timings": {},
             "parsing_method": "manta_fallback",
             "warning": (
@@ -274,7 +276,7 @@ class ReplayParser:
                             logger.error(f"Diagnostic command failed: {e}")
 
                         raise FileNotFoundError("Java not found in PATH or fallback locations")
-
+            
             logger.info(f"Using Java at: {java_bin}")
             logger.info(f"Using JAR at: {self.clarity_jar}")
 
@@ -388,7 +390,20 @@ class ReplayParser:
                 # Log memory after successful parse
                 log_memory_status()
                 
-                return self._normalize_data(raw_data)
+                result = self._normalize_data(raw_data)
+                
+                # Check if heroes were extracted successfully
+                if not result.get('heroes') or len(result['heroes']) == 0:
+                    logger.warning("Clarity parsed successfully but found NO HEROES. Attempting fallback.")
+                    # Force fallback
+                    try:
+                        return parse_with_manta(file_path)
+                    except Exception as fallback_error:
+                        logger.error(f"Fallback after empty heroes failed: {fallback_error}")
+                        # Return original result if fallback fails, better than nothing
+                        return result
+                        
+                return result
 
             finally:
                 # Cleanup output files
