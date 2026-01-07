@@ -37,7 +37,18 @@ async def lifespan(app: FastAPI):
         url = make_url(settings.database_url)
         logger.info(f"Connecting to database at {url.host}:{url.port}")
     except Exception:
+    except Exception:
         logger.error("Could not parse DATABASE_URL")
+
+    # Debug: Inspect DB Schema
+    from sqlalchemy import inspect
+    try:
+        inspector = inspect(engine)
+        columns = inspector.get_columns('users')
+        logger.info(f"DEBUG: users table columns: {[c['name'] for c in columns]}")
+    except Exception as e:
+        logger.error(f"DEBUG: Could not inspect users table: {e}")
+
 
     # Run Alembic migrations
     try:

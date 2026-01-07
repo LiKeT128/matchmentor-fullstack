@@ -126,7 +126,14 @@ async def login(
         HTTPException: If credentials are invalid.
     """
     # Find user by email
-    user = db.query(User).filter(User.email == request.email).first()
+    try:
+        user = db.query(User).filter(User.email == request.email).first()
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Login query failed for {request.email}: {str(e)}")
+        logger.exception("Full traceback:")
+        raise e
     
     if not user or not verify_password(request.password, user.password_hash):
         raise HTTPException(
