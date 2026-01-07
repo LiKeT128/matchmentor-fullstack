@@ -177,6 +177,44 @@ async def upload_match(
         parsed = parser.parse_replay(temp_file)
         logger.info("Parser returned successfully.")
         
+        # FALLBACK: If parser found no heroes (empty list), try fetching from OpenDota
+        if not parsed.get("heroes") or len(parsed["heroes"]) == 0:
+            logger.warning(f"Parser returned 0 heroes for match {parsed.get('match_id')}. Attempting OpenDota fallback...")
+            try:
+                # Use OpenDotaClient to fetch match data
+                opendota_client = OpenDotaClient()
+                # Ensure match_id is available
+                match_id = parsed.get("match_id")
+                if match_id and str(match_id) != "unknown":
+                    od_match = await opendota_client.get_match(str(match_id))
+                    
+                    if od_match and "players" in od_match:
+                        fallback_heroes = []
+                        for idx, p in enumerate(od_match["players"]):
+                            # Normalize hero name
+                            h_name = p.get("hero_name", "")
+                            if h_name and not h_name.startswith("npc_dota_hero_"):
+                                h_name = f"npc_dota_hero_{h_name}"
+                            elif not h_name:
+                                h_name = "unknown"
+                                
+                            hero_entry = {
+                                "player_id": idx,
+                                "hero_name": h_name,
+                                "team": "radiant" if idx < 5 else "dire",
+                                "position": "unknown", # OpenDota standard endpoint might not have lane role easily accessible in this view
+                                "steam_id": str(p.get("account_id") or "") or None
+                            }
+                            fallback_heroes.append(hero_entry)
+                        
+                        if fallback_heroes:
+                            parsed["heroes"] = fallback_heroes
+                            logger.info(f"Successfully recovered {len(fallback_heroes)} heroes from OpenDota API")
+            except Exception as e:
+                logger.error(f"OpenDota fallback failed: {str(e)}")
+                # Continue execution - we don't want to fail the upload just because fallback failed
+
+        
         # Check if match already analyzed BY THIS USER
         # We allow multiple users to analyze same match, so check strictly by player_id
         existing = db.query(Match).filter(
