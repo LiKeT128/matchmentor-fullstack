@@ -1,0 +1,13 @@
+.git
+.env
+__pycache__
+*.pyc
+venv
+.venv
+clarity-examples
+*.dem
+temp_replays/
+*.log
+.pytest_cache/
+.vscode/
+.idea/

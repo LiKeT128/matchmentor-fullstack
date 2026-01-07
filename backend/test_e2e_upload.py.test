@@ -1,0 +1,63 @@
+import requests
+import time
+import os
+
+BASE_URL = "http://localhost:8001"
+REPLAY_PATH = r"C:\Program Files (x86)\Steam\steamapps\common\dota 2 beta\game\dota\replays\8442062115.dem"
+
+def test_flow():
+    # 1. Register
+    print("Registering...")
+    email = f"test_{int(time.time())}@example.com"
+    reg_res = requests.post(f"{BASE_URL}/api/auth/register", json={
+        "email": email,
+        "password": "password123"
+    })
+    print(f"Register status: {reg_res.status_code}")
+    token = reg_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 2. Upload Match
+    print(f"Uploading match: {REPLAY_PATH}")
+    with open(REPLAY_PATH, "rb") as f:
+        files = {"file": ("match.dem", f, "application/octet-stream")}
+        up_res = requests.post(f"{BASE_URL}/api/matches/upload", headers=headers, files=files)
+    
+    print(f"Upload status: {up_res.status_code}")
+    if up_res.status_code != 201:
+        print(f"Error: {up_res.text}")
+        return
+
+    match_data = up_res.json()
+    match_db_id = match_data["id"]
+    print(f"Match uploaded successfully! ID: {match_db_id}")
+    print(f"Score: {match_data['overall_score']}")
+
+    # 3. Get Details
+    print("Fetching analysis details...")
+    det_res = requests.get(f"{BASE_URL}/api/matches/{match_db_id}", headers=headers)
+    details = det_res.json()
+    
+    print("\n--- PERFORMANCE SUMMARY ---")
+    print(f"Hero: {details['hero_name']}")
+    print(f"Result: {details['result']}")
+    print(f"Overall Score: {details['overall_score']}")
+    
+    print("\n--- TOP STRENGTHS ---")
+    for s in details['strengths']: print(f" - {s}")
+    
+    print("\n--- TOP WEAKNESSES ---")
+    for w in details['weaknesses']: print(f" - {w}")
+    
+    print("\n--- POWER SPIKES ---")
+    for spike in details['power_spikes']:
+        print(f" - {spike['item']} at {spike['timing_minutes']}min ({spike['status']})")
+
+    print("\n--- MISTAKES DETECTED ---")
+    for m in details['mistakes']: print(f" - {m}")
+
+if __name__ == "__main__":
+    if not os.path.exists(REPLAY_PATH):
+        print(f"Replay not found at {REPLAY_PATH}")
+    else:
+        test_flow()

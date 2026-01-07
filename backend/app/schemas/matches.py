@@ -1,0 +1,85 @@
+from datetime import datetime
+from typing import List, Optional
+from pydantic import BaseModel
+
+class MatchResponse(BaseModel):
+    """Response schema for match data."""
+    id: int
+    match_id: str
+    hero_name: str
+    duration_minutes: int
+    result: str
+    overall_score: int = 0
+    created_at: datetime
+    selected_hero_name: Optional[str] = None
+    selected_at: Optional[datetime] = None
+
+
+class MatchDetailResponse(BaseModel):
+    """Response schema for detailed match analysis."""
+    id: int
+    match_id: str
+    hero_name: str
+    duration_minutes: int
+    result: str
+    metrics: dict
+    advice: list
+    overall_score: int = 0
+    strengths: list = []
+    weaknesses: list = []
+    power_spikes: list = []
+    mistakes: list = []
+    rank_tier: int = 0
+    items: list = []
+    parsed_data: Optional[dict] = None
+    created_at: datetime
+    selected_hero_name: Optional[str] = None
+    selected_at: Optional[datetime] = None
+
+
+class UploadResponse(BaseModel):
+    """Response schema for upload endpoint."""
+    id: int
+    match_id: str
+    status: str
+    metrics_count: int
+    advice_count: int
+    overall_score: int
+
+
+class HeroInMatch(BaseModel):
+    """Schema for a hero in the match."""
+    player_id: int
+    hero_name: str
+    hero_display_name: str
+    team: str
+    position: str = "unknown"
+    steam_id: Optional[str] = None
+
+
+class UploadResponseWithHeroes(BaseModel):
+    """Response for upload when hero selection is needed."""
+    id: int
+    match_id: str
+    status: str  # "awaiting_hero_selection"
+    heroes_in_match: List[HeroInMatch]
+
+
+class SelectHeroRequest(BaseModel):
+    """Request body for hero selection."""
+    hero_name: str
+
+
+class SelectHeroResponse(BaseModel):
+    """Response after selecting a hero."""
+    match_id: str
+    selected_hero: str
+    metrics: dict
+    parsed_data: Optional[dict] = None
+
+
+class MatchComparisonResponse(BaseModel):
+    """Schema for comparing two matches."""
+    match1: MatchDetailResponse
+    match2: MatchDetailResponse
+    improvements: dict  # metric_name -> change_value
