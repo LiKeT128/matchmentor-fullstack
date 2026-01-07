@@ -125,31 +125,55 @@ async def login(
     Raises:
         HTTPException: If credentials are invalid.
     """
-    # Find user by email
+    # Wrap entire logic in try/except to catch any error
     try:
+        import logging
+        logger = logging.getLogger(__name__)
+
+        # Find user by email
+        logger.info(f"DEBUG: Attempting login for {request.email}")
         user = db.query(User).filter(User.email == request.email).first()
+        
+        if not user:
+            logger.info(f"DEBUG: User not found for {request.email}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid email or password",
+                headers={"WWW-Authenticate": "Bearer"}
+            )
+        
+        logger.info(f"DEBUG: User found: {user.id}, active={user.is_active}, has_pwd={bool(user.password_hash)}")
+        
+        # Verify password
+        if not verify_password(request.password, user.password_hash):
+            logger.info("DEBUG: Password verification failed")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid email or password",
+                headers={"WWW-Authenticate": "Bearer"}
+            )
+        
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Account is disabled"
+            )
+        
+        # Generate access token
+        access_token = create_access_token(user.id)
+        logger.info("DEBUG: Login successful")
+        
+    except HTTPException as he:
+        raise he
     except Exception as e:
         import logging
         logger = logging.getLogger(__name__)
-        logger.error(f"Login query failed for {request.email}: {str(e)}")
+        logger.error(f"Login CRASHED for {request.email}: {str(e)}")
         logger.exception("Full traceback:")
-        raise e
-    
-    if not user or not verify_password(request.password, user.password_hash):
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
-            headers={"WWW-Authenticate": "Bearer"}
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Login error: {str(e)}"
         )
-    
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Account is disabled"
-        )
-    
-    # Generate access token
-    access_token = create_access_token(user.id)
     
     return AuthResponse(
         user_id=user.id,
