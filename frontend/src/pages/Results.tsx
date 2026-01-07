@@ -5,6 +5,7 @@ import { LoadingSpinner } from '../components/LoadingSpinner';
 import { MetricsDisplay } from '../components/MetricsDisplay';
 import { Charts } from '../components/Charts';
 import { AdviceList } from '../components/AdviceList';
+import { getHeroId } from '../utils/heroMapping';
 
 interface Match {
     id: number;
@@ -18,7 +19,7 @@ interface Match {
     advice: Advice[];
     created_at: string;
     parsed_data?: {
-        heroes?: string[] | null;
+        heroes?: (string | { hero_name: string })[] | null;
     };
 }
 
@@ -49,8 +50,6 @@ export const Results = () => {
         try {
             const { data } = await api.get(`/api/matches/${id}`);
             console.log('Match data received:', data);
-            console.log('selected_hero_name:', data.selected_hero_name);
-            console.log('heroes in match:', data.parsed_data?.heroes);
 
             setMatch(data);
             // If no hero is selected yet, show the selector
@@ -79,7 +78,6 @@ export const Results = () => {
             const { data } = await api.post(`/api/matches/${matchId}/select-hero`, {
                 selected_hero_name: heroName
             });
-            console.log('Selection response:', data);
             setMatch(data);
             setShowSelector(false);
         } catch (err: unknown) {
@@ -147,12 +145,19 @@ export const Results = () => {
     const durationMinutes = Math.floor(match.duration / 60);
     const durationSeconds = match.duration % 60;
 
-    // Defensive hero extraction
-    const allHeroes = [
-        match.hero_name || match.hero,
-        ...(match.parsed_data?.heroes || [])
-    ].filter((h): h is string => typeof h === 'string' && h.trim().length > 0)
+    // Defensive hero extraction (handle strings or objects)
+    const rawHeroes = match.parsed_data?.heroes || [];
+    const allHeroes = rawHeroes.map(h => {
+        if (typeof h === 'string') return h;
+        return h.hero_name || ''; // Handle object
+    }).filter(h => h && h.trim().length > 0)
+        // Deduplicate
         .filter((h, i, arr) => arr.indexOf(h) === i);
+
+    // Fallback if no heroes found, use main hero
+    if (allHeroes.length === 0 && (match.hero_name || match.hero)) {
+        allHeroes.push(match.hero_name || match.hero);
+    }
 
     const currentHero = match.selected_hero_name || match.hero_name || match.hero;
 
@@ -227,6 +232,11 @@ export const Results = () => {
                         <div className="grid grid-cols-2 sm:grid-cols-5 md:grid-cols-10 gap-3">
                             {allHeroes.map(hero => {
                                 const heroShortName = hero.replace('npc_dota_hero_', '');
+                                const heroId = getHeroId(hero);
+                                const imageUrl = heroId
+                                    ? `https://api.opendota.com/apps/dota2/images/heroes/${heroId}_lg.png`
+                                    : `https://api.opendota.com/apps/dota2/images/heroes/${heroShortName}_full.png`; // Spring-back to name if ID not found (unlikely for standard heroes)
+
                                 return (
                                     <button
                                         key={hero}
@@ -242,11 +252,15 @@ export const Results = () => {
                                     >
                                         <div className="relative w-full aspect-[128/72] overflow-hidden rounded-lg">
                                             <img
-                                                src={`https://api.opendota.com/apps/dota2/images/heroes/${heroShortName}_full.png`}
+                                                src={imageUrl}
                                                 alt={heroShortName}
                                                 className="w-full h-full object-cover transition-transform group-hover:scale-110"
                                                 onError={(e) => {
-                                                    (e.target as HTMLImageElement).src = 'https://via.placeholder.com/128x72?text=Hero';
+                                                    // Fallback to placeholder if all else fails
+                                                    const target = e.target as HTMLImageElement;
+                                                    if (!target.src.includes('placeholder')) {
+                                                        target.src = 'https://via.placeholder.com/128x72?text=Hero';
+                                                    }
                                                 }}
                                             />
                                             {currentHero === hero && (

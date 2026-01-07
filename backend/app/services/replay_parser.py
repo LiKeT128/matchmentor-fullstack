@@ -419,6 +419,10 @@ class ReplayParser:
         """
         duration_seconds = raw_data.get("duration", 0)
         
+        # Build detailed heroes list
+        heroes_list = self._extract_all_heroes(raw_data)
+        
+        # Extract metadata
         normalized = {
             "match_id": str(raw_data.get("match_id", "")),
             "duration_minutes": duration_seconds // 60,
@@ -445,7 +449,8 @@ class ReplayParser:
             "item_timings": raw_data.get("item_timings", {}),
             
             # Additional frontend data
-            "heroes": self._extract_all_heroes(raw_data),
+            "heroes": heroes_list,
+            "steam_id": self._extract_steam_id(raw_data),
             
             # Full data for advanced analysis
             "full_data": raw_data
@@ -454,43 +459,58 @@ class ReplayParser:
         logger.info(f"Successfully normalized data for Match ID: {normalized['match_id']}, Hero: {normalized['hero_name']}")
         return normalized
 
-    def _extract_all_heroes(self, data: Dict[str, Any]) -> List[str]:
+    def _extract_steam_id(self, data: Dict[str, Any]) -> Optional[str]:
+        """Extract a primary Steam ID if possible."""
+        # Check players for one matching specific criteria if needed
+        # For now, if 'player_steam_id' exists in root, use it
+        if data.get("steam_id"):
+            return str(data.get("steam_id"))
+            
+        # Or check if any player is marked as 'is_local' or similar (Clarity specific)
+        if "players" in data:
+            for p in data["players"]:
+                # account_id is 32-bit, steam_id needs to be 64-bit
+                account_id = p.get("account_id")
+                steam_id = p.get("steam_id")
+                
+                if steam_id:
+                    return str(steam_id)
+                
+                # Conversion logic: 64-bit ID = 32-bit ID + 76561197960265728
+                if account_id and int(account_id) > 0:
+                    steam_64 = int(account_id) + 76561197960265728
+                    logger.info(f"✓ Extracted steam_id: {steam_64} (from account_id {account_id})")
+                    return str(steam_64)
+                    
+        return None
+
+    def _extract_all_heroes(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
-        Extract all hero names from match data.
+        Extract detailed hero list from match data.
         
         Args:
             data: Raw match data.
             
         Returns:
-            List of hero names.
+            List of hero dictionaries.
         """
         heroes = []
         
-        # Method 1: usage of 'players' array (Clarity standard)
         if "players" in data:
-            for p in data["players"]:
-                h = p.get("hero_name", p.get("hero"))
-                if h:
-                    heroes.append(h)
-        
-        # Method 2: specific keys (User snippet/Fallback)
-        if not heroes:
-             if data.get("player_hero"):
-                 heroes.append(data["player_hero"])
-             if data.get("enemy_heroes"):
-                 heroes.extend(data["enemy_heroes"])
-             if data.get("team_heroes"):
-                 heroes.extend(data["team_heroes"])
-                 
-        # Deduplicate and filter
-        seen = set()
-        unique_heroes = []
-        for h in heroes:
-            if h and h not in seen:
-                seen.add(h)
-                unique_heroes.append(h)
+            for i, p in enumerate(data["players"]):
+                h_name = p.get("hero_name", p.get("hero", "unknown"))
+                team = "radiant" if i < 5 else "dire"
                 
-        return unique_heroes
+                hero_entry = {
+                    "player_id": i,
+                    "hero_name": h_name,
+                    "team": team,
+                    "position": p.get("position", "unknown"),
+                    "steam_id": str(p.get("steam_id", p.get("account_id", ""))) or None
+                }
+                heroes.append(hero_entry)
+        
+        return heroes
     
     def _determine_result(self, data: Dict[str, Any]) -> str:
         """

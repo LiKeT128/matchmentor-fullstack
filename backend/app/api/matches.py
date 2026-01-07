@@ -16,7 +16,9 @@ from app.models.match import Match
 from app.services.auth_service import get_current_user
 from app.services.replay_parser import ReplayParser
 from app.services.match_analyzer import MatchAnalyzer
+from app.services.match_analyzer import MatchAnalyzer
 from app.services.email_service import email_service
+from app.services.opendota_client import OpenDotaClient
 from app.schemas.matches import (
     MatchResponse, 
     MatchDetailResponse, 
@@ -65,6 +67,75 @@ def _extract_heroes_from_match(parsed_data: Optional[dict]) -> List[dict]:
         })
     
     return heroes
+
+
+    return heroes
+
+
+@router.post("/lookup", status_code=status.HTTP_200_OK)
+async def lookup_match(
+    match_id: str = Query(...),
+    steam_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Look up a match by Dota 2 match ID without needing .dem file upload.
+    """
+    logger.info(f"Looking up match {match_id} for user {current_user.id}")
+    
+    # Check if already analyzed
+    existing = db.query(Match).filter(
+        Match.match_id == match_id,
+        Match.player_id == current_user.id
+    ).first()
+    
+    if existing and existing.parsed_data:
+        logger.info(f"Match {match_id} already analyzed by user")
+        heroes = existing.parsed_data.get("heroes", [])
+        return {
+            "match_id": match_id,
+            "status": "already_analyzed",
+            "heroes_in_match": heroes,
+            "parsed_data": existing.parsed_data
+        }
+    
+    # Fetch from OpenDota API
+    try:
+        opendota_client = OpenDotaClient()
+        match_data = await opendota_client.get_match(match_id)
+        
+        logger.info(f"Match data fetched from OpenDota")
+        
+        # Extract heroes from match_data.players
+        heroes = [
+            {
+                "player_id": idx,
+                "hero_name": f"npc_dota_hero_{match_data['players'][idx]['hero_name']}" if 'npc_dota_hero' not in str(match_data['players'][idx]['hero_name']) else match_data['players'][idx]['hero_name'],
+                "team": "radiant" if idx < 5 else "dire",
+                "steam_id": str(match_data['players'][idx].get('account_id', '')) or None,
+                "kills": match_data['players'][idx].get('kills'),
+                "deaths": match_data['players'][idx].get('deaths'),
+                "assists": match_data['players'][idx].get('assists'),
+            }
+            for idx in range(min(10, len(match_data.get('players', []))))
+        ]
+        
+        return {
+            "match_id": match_id,
+            "status": "found",
+            "heroes_in_match": heroes,
+            "duration_minutes": match_data.get("duration", 0) // 60,
+            "radiant_win": match_data.get("radiant_win"),
+            "message": "Match found. Select your hero to analyze."
+        }
+    
+    except Exception as e:
+        logger.error(f"Failed to lookup match: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Match not found or unavailable: {str(e)}"
+        )
 
 
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
@@ -141,9 +212,16 @@ async def upload_match(
             match.hero_name = parsed["hero_name"]
             match.duration_minutes = parsed["duration_minutes"]
             match.result = parsed["result"]
-            match.parsed_data = parsed.get("full_data")
+            
+            # Ensure parsed_data has heroes array and steam_id from normalized data
+            final_parsed_data = parsed.get("full_data", {}).copy() if parsed.get("full_data") else {}
+            final_parsed_data["heroes"] = parsed.get("heroes", [])
+            final_parsed_data["steam_id"] = parsed.get("steam_id")
+            
+            match.parsed_data = final_parsed_data
             match.metrics = full_metrics
             match.advice = analysis["advice"]
+            match.steam_id = parsed.get("steam_id")
             # Ensure player_id matches current user if they are re-uploading
             match.player_id = current_user.id
             
@@ -163,14 +241,20 @@ async def upload_match(
                 "overall_score": analysis["overall_score"]
             }
         
+        # Ensure parsed_data has heroes array and steam_id from normalized data
+        final_parsed_data = parsed.get("full_data", {}).copy() if parsed.get("full_data") else {}
+        final_parsed_data["heroes"] = parsed.get("heroes", [])
+        final_parsed_data["steam_id"] = parsed.get("steam_id")
+
         # Create match record
         match = Match(
             match_id=parsed["match_id"],
             player_id=current_user.id,
+            steam_id=parsed.get("steam_id"),
             hero_name=parsed["hero_name"],
             duration_minutes=parsed["duration_minutes"],
             result=parsed["result"],
-            parsed_data=parsed.get("full_data"),
+            parsed_data=final_parsed_data,
             metrics=full_metrics,
             advice=analysis["advice"]
         )
@@ -362,19 +446,22 @@ async def get_match(
         
         # Check if heroes key is missing or empty
         if not parsed_data.get('heroes'):
-            logger.info("Building heroes array from players...")
+            logger.warning("Heroes array missing, rebuilding...")
             heroes = []
             if "players" in parsed_data:
-                for i, p in enumerate(parsed_data["players"]):
-                    h = p.get("hero_name", p.get("hero"))
-                    if h:
-                        heroes.append(h)
-                        logger.info(f"  Player {i}: {h}")
-            
-            if not heroes:
-                logger.warning("No heroes found in parsed_data")
+                for idx, p in enumerate(parsed_data["players"]):
+                    # Build detailed hero object
+                    hero_name = p.get("hero_name", p.get("hero", "unknown"))
+                    heroes.append({
+                        "player_id": idx,
+                        "hero_name": hero_name,
+                        "team": "radiant" if idx < 5 else "dire",
+                        "position": p.get("position", "unknown"),
+                        "steam_id": str(p.get("account_id") or "")
+                    })
             
             parsed_data['heroes'] = heroes
+            logger.info(f"✓ Rebuilt {len(heroes)} heroes")
         
         logger.info(f"Final heroes count: {len(parsed_data.get('heroes', []))}")
         
@@ -396,7 +483,8 @@ async def get_match(
             parsed_data=parsed_data,
             created_at=match.created_at,
             selected_hero_name=match.selected_hero_name,
-            selected_at=match.selected_at
+            selected_at=match.selected_at,
+            steam_id=match.steam_id
         )
         
         logger.info(f"✓ Returning match response")

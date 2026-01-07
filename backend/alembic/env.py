@@ -4,6 +4,7 @@ from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
 from alembic import context
+from dotenv import load_dotenv
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -17,12 +18,14 @@ if config.config_file_name is not None:
 import os
 import sys
 
+load_dotenv()
+
 # Add the project root to the path so we can import 'app'
 sys.path.insert(0, os.getcwd())
 
 from app.database import Base
-from app.models.match import Match  # Ensure Match model is imported so it's registered
-# Import other models as needed
+from app.models.match import Match
+from app.models.user import User  # ← ДОБАВЬ ЭТО (если у тебя есть User модель)
 
 # Read DATABASE_URL from environment (Railway sets this automatically)
 database_url = os.environ.get(

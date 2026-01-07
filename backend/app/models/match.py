@@ -28,6 +28,7 @@ class Match(Base):
     id = Column(Integer, primary_key=True, index=True)
     match_id = Column(String(50), index=True, nullable=False)
     player_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    steam_id = Column(String(50), nullable=True, index=True)
     hero_name = Column(String(100), nullable=False)
     duration_minutes = Column(Integer, nullable=False)
     result = Column(String(20), nullable=False)  # WIN, LOSS, ABANDONED

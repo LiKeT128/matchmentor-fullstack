@@ -35,6 +35,7 @@ class MatchDetailResponse(BaseModel):
     created_at: datetime
     selected_hero_name: Optional[str] = None
     selected_at: Optional[datetime] = None
+    steam_id: Optional[str] = None
 
 
 class UploadResponse(BaseModel):
