@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+import bcrypt
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -14,9 +14,6 @@ from app.database import get_db
 from app.models.user import User
 
 settings = get_settings()
-
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # OAuth2 scheme
 security = HTTPBearer()
@@ -33,9 +30,10 @@ def hash_password(password: str) -> str:
         Hashed password string.
     """
     # Bcrypt has a 72-byte limit - truncate to prevent errors
-    # Pass bytes directly to avoid re-encoding
     password_bytes = password.encode('utf-8')[:72]
-    return pwd_context.hash(password_bytes)
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password_bytes, salt)
+    return hashed.decode('utf-8')
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -49,10 +47,13 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     Returns:
         True if password matches, False otherwise.
     """
-    # Bcrypt has a 72-byte limit - truncate and pass bytes directly
-    # Don't decode back to string to avoid re-encoding exceeding 72 bytes
+    # Bcrypt has a 72-byte limit - truncate to prevent errors
     password_bytes = plain_password.encode('utf-8')[:72]
-    return pwd_context.verify(password_bytes, hashed_password)
+    hashed_bytes = hashed_password.encode('utf-8')
+    try:
+        return bcrypt.checkpw(password_bytes, hashed_bytes)
+    except Exception:
+        return False
 
 
 def create_access_token(user_id: int, expires_delta: Optional[timedelta] = None) -> str:
