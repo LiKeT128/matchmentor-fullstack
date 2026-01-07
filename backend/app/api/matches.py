@@ -69,9 +69,6 @@ def _extract_heroes_from_match(parsed_data: Optional[dict]) -> List[dict]:
     return heroes
 
 
-    return heroes
-
-
 @router.post("/lookup", status_code=status.HTTP_200_OK)
 async def lookup_match(
     match_id: str = Query(...),

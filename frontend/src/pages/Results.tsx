@@ -76,7 +76,7 @@ export const Results = () => {
         try {
             console.log('Selecting hero:', heroName);
             const { data } = await api.post(`/api/matches/${matchId}/select-hero`, {
-                selected_hero_name: heroName
+                hero_name: heroName
             });
             setMatch(data);
             setShowSelector(false);
