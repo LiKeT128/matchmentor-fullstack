@@ -58,24 +58,94 @@ def _extract_heroes_from_match(parsed_data: Optional[dict]) -> List[dict]:
     else:
         heroes_raw = parsed_data.get("players", [])
         logger.info(f"_extract_heroes: Falling back to 'players' key, found {len(heroes_raw)} entries")
+
+    # Import locally to avoid circular potential
+    from app.services.hero_mapping import get_hero_name
     
     for idx, entry in enumerate(heroes_raw):
+        # Initialize defaults
+        raw_hero_name = "unknown"
+        hero_id = None
+        position = "unknown"
+        steam_id = None
+        team = "radiant" if idx < 5 else "dire"
+        player_name = None
+        
         # Handle both dict entries and simple string entries
         if isinstance(entry, dict):
-            raw_hero_name = entry.get("hero_name", entry.get("hero", "unknown"))
-            position = entry.get("position", entry.get("lane_role", "unknown"))
+            # 1. Get Hero Name & ID
+            raw_hero_name = entry.get("hero_name", entry.get("hero"))
+            hero_id = entry.get("hero_id")
+            
+            # Fallback: If name is unknown/missing but we have ID, lookup name
+            # Note: "npc_dota_hero_unknown" is what get_hero_name returns if not found
+            if (not raw_hero_name or "unknown" in str(raw_hero_name).lower()) and hero_id:
+                try:
+                    mapped_name = get_hero_name(int(hero_id))
+                    # Only override if we got a real name (not the unknown placeholder unless original was also bad)
+                    if mapped_name and "unknown" not in mapped_name:
+                         raw_hero_name = mapped_name
+                except Exception:
+                    pass
+            
+            # 2. Get Position/Lane
+            # Prioritize explicit 'position' field if valid
+            p_val = entry.get("position")
+            if p_val and str(p_val) != "unknown":
+                position = p_val
+            else:
+                # Infer from 'lane' + Team
+                # Lanes: 1=Bot, 2=Mid, 3=Top, 4/5=Jungle/Roam
+                lane = entry.get("lane")
+                if lane is not None:
+                    try:
+                        lane_val = int(lane)
+                        # Determine team (some APIs provide isRadiant or team field)
+                        is_radiant = (idx < 5) # Default assumption
+                        if entry.get("isRadiant") is not None:
+                            is_radiant = entry.get("isRadiant")
+                        elif entry.get("team") == "radiant":
+                            is_radiant = True
+                        elif entry.get("team") == "dire":
+                            is_radiant = False
+                        # If team was passed as int (0/1), handle that if needed, but usually string or bool
+                        
+                        team = "radiant" if is_radiant else "dire"
+                        
+                        if lane_val == 2: # Mid
+                            position = "Mid Lane"
+                        elif lane_val == 1: # Bot
+                            position = "Safe Lane" if is_radiant else "Off Lane"
+                        elif lane_val == 3: # Top
+                            position = "Off Lane" if is_radiant else "Safe Lane"
+                        elif lane_val in [4, 5]: # Jungle/Roam
+                             # Distinguish slightly if possible, or just Roaming
+                            position = "Roaming"
+                    except:
+                        pass
+                
+            # 3. Get User Info
             steam_id = entry.get("steam_id", entry.get("account_id"))
-            team = entry.get("team", "radiant" if idx < 5 else "dire")
+            
+            # 4. Get Team String
+            if entry.get("isRadiant") is not None:
+                 team = "radiant" if entry["isRadiant"] else "dire"
+            elif entry.get("team"):
+                 team = entry["team"]
+
         else:
             # Entry is a string (hero name)
             raw_hero_name = str(entry) if entry else "unknown"
-            position = "unknown"
-            steam_id = None
-            team = "radiant" if idx < 5 else "dire"
         
         # CRITICAL: Map internal names to image CDN names
         # Some icons have different names in the CDN than internal IDs
-        raw_name = raw_hero_name or "unknown"
+        raw_name = str(raw_hero_name) if raw_hero_name else "unknown"
+        
+        # Ensure proper prefix if missing (for mapping logic below)
+        if not raw_name.startswith("npc_dota_hero_") and raw_name != "unknown":
+             # It might be a short name already? let's assume raw names usually come with prefix from parser/api
+             pass 
+
         short_name = raw_name.replace("npc_dota_hero_", "")
         
         # Image mapping (Internal -> CDN Name)
