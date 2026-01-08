@@ -394,34 +394,50 @@ class ReplayParser:
                 result = self._normalize_data(raw_data)
 
                 # =======================
-                # BUILD HEROES ARRAY (Explicit Override)
+                # DEBUG: Log raw Clarity output structure
                 # =======================
-                # The user reported issues with hero mapping, so we are rebuilding 
-                # the heroes array here explicitly using raw_data to be 100% sure.
+                logger.info(f"DEBUG: raw_data.keys() = {list(raw_data.keys())}")
+                if "players" in raw_data:
+                    logger.info(f"DEBUG: players count = {len(raw_data['players'])}")
+                    if raw_data["players"]:
+                        first_player = raw_data["players"][0]
+                        logger.info(f"DEBUG: First player keys = {list(first_player.keys())}")
+                        # Log first 500 chars of first player to see structure
+                        import json as json_debug
+                        logger.info(f"DEBUG: First player = {json_debug.dumps(first_player, default=str)[:500]}")
+                else:
+                    logger.warning("DEBUG: NO 'players' key in raw_data!")
+
+                # =======================
+                # BUILD HEROES ARRAY (with multiple fallback keys)
+                # =======================
                 if "players" in raw_data:
                     heroes_list = []
                     logger.info("re-building heroes list explicitly...")
                     
                     for i, player in enumerate(raw_data.get("players", [])):
-                        # Default to 0 or 1 if missing, but try to find ID
-                        hero_id_raw = player.get("hero_id")
-                        hero_name_raw = player.get("hero_name")
+                        # Try multiple possible keys for hero identification
+                        hero_id_raw = player.get("hero_id") or player.get("heroId") or player.get("hero")
+                        hero_name_raw = player.get("hero_name") or player.get("heroName") or player.get("localized_name")
                         
-                        # Use ID if present
+                        logger.info(f"  Player {i}: hero_id_raw={hero_id_raw}, hero_name_raw={hero_name_raw}")
+                        
+                        # Determine hero name
                         if hero_id_raw is not None:
-                            hero_id = int(hero_id_raw)
-                            hero_name = get_hero_name(hero_id)
-                        # Fallback to name if ID missing (rare for legacy Clarity?)
+                            try:
+                                hero_id = int(hero_id_raw)
+                                hero_name = get_hero_name(hero_id)
+                                logger.info(f"    -> Mapped ID {hero_id} to {hero_name}")
+                            except (ValueError, TypeError):
+                                # hero_id_raw might be a string name
+                                hero_name = str(hero_id_raw)
+                                logger.info(f"    -> Using raw value as name: {hero_name}")
                         elif hero_name_raw:
-                            hero_name = hero_name_raw
+                            hero_name = str(hero_name_raw)
+                            logger.info(f"    -> Using hero_name_raw: {hero_name}")
                         else:
-                            hero_name = "npc_dota_hero_unknown"
-                            
-                        # Normalize name
-                        if not hero_name.startswith("npc_dota_hero_") and not hero_name.startswith("unknown"):
-                             # If it looks like an ID (numeric string)
-                             if str(hero_name).isdigit():
-                                 hero_name = get_hero_name(int(hero_name))
+                            hero_name = "unknown"
+                            logger.warning(f"    -> NO HERO DATA FOUND for player {i}!")
                         
                         hero = {
                             "player_id": i,
@@ -434,9 +450,7 @@ class ReplayParser:
                             "assists": int(player.get("assists", 0))
                         }
                         heroes_list.append(hero)
-                        logger.info(f"  Player {i}: {hero_name} (ID: {hero_id_raw})")
                     
-                    # Override the heroes in result
                     result["heroes"] = heroes_list
                     logger.info(f"✓ Built heroes array with {len(heroes_list)} heroes")
 
