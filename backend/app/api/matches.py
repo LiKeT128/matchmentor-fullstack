@@ -237,8 +237,12 @@ async def lookup_match(
     
     if existing and existing.parsed_data:
         logger.info(f"Match {match_id} already analyzed by user")
-        # Use the helper function which strips prefix correctly
-        heroes = _extract_heroes_from_match(existing.parsed_data)
+        # Use cached heroes if available to avoid re-extraction issues
+        heroes = existing.parsed_data.get("heroes")
+        if not heroes:
+             logger.info("Cached heroes missing, re-extracting...")
+             heroes = _extract_heroes_from_match(existing.parsed_data)
+             
         return {
             "match_id": match_id,
             "status": "already_analyzed",
@@ -872,6 +876,10 @@ def _extract_heroes_from_match(parsed_data: dict) -> list[dict]:
     and basic stats.
     """
     heroes = []
+    
+    # Debug logging to trace structure
+    keys = list(parsed_data.keys())
+    logger.info(f"_extract_heroes: checking parsed_data keys: {keys}")
     
     # Try standard players list
     players = parsed_data.get("players", [])
