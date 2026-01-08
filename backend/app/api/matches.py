@@ -887,243 +887,253 @@ async def select_hero(
     """
     logger.info(f"SelectHero: Entering. match_id='{match_id}', user_id={current_user.id}")
 
-    # Find match by match_id first (Dota ID), then by internal ID
-    match = db.query(Match).filter(
-        Match.match_id == match_id,
-        Match.player_id == current_user.id
-    ).first()
-    
-    if match:
-        logger.info(f"SelectHero: Found match by match_id (Dota ID). ID={match.id}")
-    
-    if not match and match_id.isdigit():
-        val = int(match_id)
-        # Verify length to ensure we don't mix up Dota ID (10 chars) with internal ID
-        if val < 100000000:
-            logger.info(f"SelectHero: Attempting fallback to internal ID lookup for {val}")
-            match = db.query(Match).filter(
-                Match.id == val,
-                Match.player_id == current_user.id
-            ).first()
-            if match:
-                 logger.info(f"SelectHero: Found match by Internal ID. MatchID={match.match_id}")
-    
-    if not match:
-        logger.error(f"SelectHero: Match NOT FOUND. match_id='{match_id}', user_id={current_user.id}. Query returned None.")
-        # Debug: Check if match exists for ANY user?
-        debug_check = db.query(Match).filter(Match.match_id == match_id).first()
-        if debug_check:
-            logger.error(f"SelectHero: Match DOES exist but for player_id={debug_check.player_id}. Access Denied or ID Mismatch.")
-        else:
-            logger.error("SelectHero: Match does not exist in DB at all.")
-            
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Match not found"
-        )
-    
-    if not match.parsed_data:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Match has no parsed data for hero selection"
-        )
-    
-    # Find the selected hero in parsed_data
-    # 1. Try to find match in 'heroes' list (which has corrected names/data)
-    heroes = match.parsed_data.get("heroes", [])
-    matched_hero_entry = None
-    
-    logger.info(f"SelectHero: Request '{request.hero_name}'. Checking 'heroes' list ({len(heroes)} entries)")
-    
-    # Try exact match or fuzzy match on 'heroes' list
-    for h in heroes:
-        h_name = h.get("hero_name", "unknown")
-        # Normalize
-        h_short = h_name.replace("npc_dota_hero_", "")
-        r_short = request.hero_name.replace("npc_dota_hero_", "")
+    try:
+        # Find match by match_id first (Dota ID), then by internal ID
+        match = db.query(Match).filter(
+            Match.match_id == match_id,
+            Match.player_id == current_user.id
+        ).first()
         
-        if h_short == r_short:
-            matched_hero_entry = h
-            break
-            
-    # If not found data in heroes, maybe try players directly (fallback)
-    
-    players = match.parsed_data.get("players", [])
-    selected_player = None
-    
-    if matched_hero_entry:
-        pid = matched_hero_entry.get("player_id")
-        logger.info(f"Found matched hero entry. Player ID: {pid}")
+        if match:
+            logger.info(f"SelectHero: Found match by match_id (Dota ID). ID={match.id}")
         
-        # 2. Get full stats from 'players' list using player_id
-        if players and pid is not None and 0 <= pid < len(players):
-            selected_player = players[pid]
-            # Ensure hero name is synced in the returned object
-            selected_player["hero_name"] = matched_hero_entry.get("hero_name")
-            selected_player["hero_display_name"] = matched_hero_entry.get("hero_display_name")
-        else:
-             # Fallback if players list is empty/mismatched but we have hero entry
-             selected_player = matched_hero_entry
-             
-    else:
-        # Fallback: legacy search in 'players' list directly
-        logger.info("Hero not found in 'heroes' list. Searching 'players' list directly...")
-        for player in players:
-            player_hero = player.get("hero_name", player.get("hero", ""))
-            p_short = player_hero.replace("npc_dota_hero_", "")
+        if not match and match_id.isdigit():
+            val = int(match_id)
+            # Verify length to ensure we don't mix up Dota ID (10 chars) with internal ID
+            if val < 100000000:
+                logger.info(f"SelectHero: Attempting fallback to internal ID lookup for {val}")
+                match = db.query(Match).filter(
+                    Match.id == val,
+                    Match.player_id == current_user.id
+                ).first()
+                if match:
+                     logger.info(f"SelectHero: Found match by Internal ID. MatchID={match.match_id}")
+        
+        if not match:
+            logger.error(f"SelectHero: Match NOT FOUND. match_id='{match_id}', user_id={current_user.id}. Query returned None.")
+            # Debug: Check if match exists for ANY user?
+            debug_check = db.query(Match).filter(Match.match_id == match_id).first()
+            if debug_check:
+                logger.error(f"SelectHero: Match DOES exist but for player_id={debug_check.player_id}. Access Denied or ID Mismatch.")
+            else:
+                logger.error("SelectHero: Match does not exist in DB at all.")
+                
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Match not found"
+            )
+        
+        if not match.parsed_data:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Match has no parsed data for hero selection"
+            )
+        
+        # Find the selected hero in parsed_data
+        # 1. Try to find match in 'heroes' list (which has corrected names/data)
+        heroes = match.parsed_data.get("heroes", [])
+        matched_hero_entry = None
+        
+        logger.info(f"SelectHero: Request '{request.hero_name}'. Checking 'heroes' list ({len(heroes)} entries)")
+        
+        # Try exact match or fuzzy match on 'heroes' list
+        for h in heroes:
+            h_name = h.get("hero_name", "unknown")
+            # Normalize
+            h_short = h_name.replace("npc_dota_hero_", "")
             r_short = request.hero_name.replace("npc_dota_hero_", "")
             
-            if p_short == r_short:
-                selected_player = player
+            if h_short == r_short:
+                matched_hero_entry = h
                 break
                 
-        if not selected_player:
-             # Try finding by display name or loose match as fallback
+        # If not found data in heroes, maybe try players directly (fallback)
+        
+        players = match.parsed_data.get("players", [])
+        selected_player = None
+        
+        if matched_hero_entry:
+            pid = matched_hero_entry.get("player_id")
+            logger.info(f"Found matched hero entry. Player ID: {pid}")
+            
+            # 2. Get full stats from 'players' list using player_id
+            if players and pid is not None and 0 <= pid < len(players):
+                selected_player = players[pid]
+                # Ensure hero name is synced in the returned object
+                selected_player["hero_name"] = matched_hero_entry.get("hero_name")
+                selected_player["hero_display_name"] = matched_hero_entry.get("hero_display_name")
+            else:
+                 # Fallback if players list is empty/mismatched but we have hero entry
+                 selected_player = matched_hero_entry
+                 
+        else:
+            # Fallback: legacy search in 'players' list directly
+            logger.info("Hero not found in 'heroes' list. Searching 'players' list directly...")
             for player in players:
-                 player_hero = player.get("hero_name", player.get("hero", ""))
-                 if request.hero_name.lower() in player_hero.lower():
-                     selected_player = player
-                     break
-    
-    if not selected_player:
-        logger.error(f"Hero '{request.hero_name}' NOT found in match {match.match_id}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Hero '{request.hero_name}' not found in match"
-        )
-    
-    # Extract ALL metrics for this player
-    # Note: OpenDota fields are gold_per_min, xp_per_min, last_hits, denies.
-    # Our internal parser fields are gpm, xpm, last_hits, denies.
-    
-    # Try to get metrics from standard keys, then OpenDota keys
-    gpm = selected_player.get("gpm") or selected_player.get("gold_per_min", 0)
-    xpm = selected_player.get("xpm") or selected_player.get("xp_per_min", 0)
-    last_hits = selected_player.get("last_hits", 0)
-    denies = selected_player.get("denies", 0)
-    
-    kills = selected_player.get("kills", 0)
-    deaths = selected_player.get("deaths", 0)
-    assists = selected_player.get("assists", 0)
-    
-    # Calculate KDA
-    if deaths == 0:
-        kda = kills + assists
-    else:
-        kda = round((kills + assists) / deaths, 2)
+                player_hero = player.get("hero_name", player.get("hero", ""))
+                p_short = player_hero.replace("npc_dota_hero_", "")
+                r_short = request.hero_name.replace("npc_dota_hero_", "")
+                
+                if p_short == r_short:
+                    selected_player = player
+                    break
+                    
+            if not selected_player:
+                 # Try finding by display name or loose match as fallback
+                for player in players:
+                     player_hero = player.get("hero_name", player.get("hero", ""))
+                     if request.hero_name.lower() in player_hero.lower():
+                         selected_player = player
+                         break
+        
+        if not selected_player:
+            logger.error(f"Hero '{request.hero_name}' NOT found in match {match.match_id}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Hero '{request.hero_name}' not found in match"
+            )
+        
+        # Extract ALL metrics for this player
+        # Note: OpenDota fields are gold_per_min, xp_per_min, last_hits, denies.
+        # Our internal parser fields are gpm, xpm, last_hits, denies.
+        
+        # Try to get metrics from standard keys, then OpenDota keys
+        gpm = selected_player.get("gpm") or selected_player.get("gold_per_min", 0)
+        xpm = selected_player.get("xpm") or selected_player.get("xp_per_min", 0)
+        last_hits = selected_player.get("last_hits", 0)
+        denies = selected_player.get("denies", 0)
+        
+        kills = selected_player.get("kills", 0)
+        deaths = selected_player.get("deaths", 0)
+        assists = selected_player.get("assists", 0)
+        
+        # Calculate KDA
+        if deaths == 0:
+            kda = kills + assists
+        else:
+            kda = round((kills + assists) / deaths, 2)
 
-    metrics = {
-        # Basic stats
-        "kills": kills,
-        "deaths": deaths,
-        "assists": assists,
-        "kda": kda,
+        metrics = {
+            # Basic stats
+            "kills": kills,
+            "deaths": deaths,
+            "assists": assists,
+            "kda": kda,
+            
+            # Farming
+            "gpm": gpm,
+            "xpm": xpm,
+            "last_hits": last_hits,
+            "denies": denies,
+            
+            # Damage
+            "hero_damage": selected_player.get("hero_damage", 0),
+            "tower_damage": selected_player.get("tower_damage", 0),
+            "hero_healing": selected_player.get("hero_healing", 0),
+            
+            # Advanced (default to 0 if not parsed)
+            "damage_ratio": 0.0,
+            "gold_efficiency": 0.0,
+            "lane_efficiency": 0.0,
+            "vision_score": 0.0,
+            "camp_stacking": 0.0,
+            
+            # Lists
+            "strengths": [],
+            "weaknesses": [],
+            "power_spikes": [],
+            "mistakes": [],
+            
+            # Items
+            "items": selected_player.get("items", []),
+            "item_timings": selected_player.get("item_timings", {})
+        }
         
-        # Farming
-        "gpm": gpm,
-        "xpm": xpm,
-        "last_hits": last_hits,
-        "denies": denies,
+        # Simple advice based on stats
+        advice = []
         
-        # Damage
-        "hero_damage": selected_player.get("hero_damage", 0),
-        "tower_damage": selected_player.get("tower_damage", 0),
-        "hero_healing": selected_player.get("hero_healing", 0),
+        # Compare GPM to rough average
+        if gpm < 400 and selected_player.get("position") in ["Core", "Safe Lane", "Mid Lane", "Off Lane"]:
+             metrics["weaknesses"].append("Low GPM compared to average")
+             advice.append({
+                 "type": "farming",
+                 "severity": "warning",
+                  "message": f"Your GPM {gpm} is below average for a Core.",
+                  "suggestion": "Focus on efficient farming patterns."
+             })
+             
+        if kda < 2.0:
+            metrics["weaknesses"].append("Low KDA ratio")
+            
+        if kills > 10:
+            metrics["strengths"].append("High kill participation")
         
-        # Advanced (default to 0 if not parsed)
-        "damage_ratio": 0.0,
-        "gold_efficiency": 0.0,
-        "lane_efficiency": 0.0,
-        "vision_score": 0.0,
-        "camp_stacking": 0.0,
+        # Calculate KDA
+        deaths = max(metrics["deaths"], 1)
+        metrics["kda"] = round((metrics["kills"] + metrics["assists"]) / deaths, 2)
         
-        # Lists
-        "strengths": [],
-        "weaknesses": [],
-        "power_spikes": [],
-        "mistakes": [],
+        # Store selection in match
+        match.selected_hero_name = request.hero_name
+        match.selected_at = datetime.utcnow()
+        match.hero_name = request.hero_name  # Update primary hero field
         
-        # Items
-        "items": selected_player.get("items", []),
-        "item_timings": selected_player.get("item_timings", [])
-    }
-    
-    # Simple advice based on stats
-    advice = []
-    
-    # Compare GPM to rough average
-    if gpm < 400 and selected_player.get("position") in ["Core", "Safe Lane", "Mid Lane", "Off Lane"]:
-         metrics["weaknesses"].append("Low GPM compared to average")
-         advice.append({
-             "type": "farming",
-             "severity": "warning",
-              "message": f"Your GPM {gpm} is below average for a Core.",
-              "suggestion": "Focus on efficient farming patterns."
-         })
-         
-    if kda < 2.0:
-        metrics["weaknesses"].append("Low KDA ratio")
+        # Re-analyze with the selected player's data
+        analyzer = MatchAnalyzer()
         
-    if kills > 10:
-        metrics["strengths"].append("High kill participation")
-    
-    # Calculate KDA
-    deaths = max(metrics["deaths"], 1)
-    metrics["kda"] = round((metrics["kills"] + metrics["assists"]) / deaths, 2)
-    
-    # Store selection in match
-    match.selected_hero_name = request.hero_name
-    match.selected_at = datetime.utcnow()
-    match.hero_name = request.hero_name  # Update primary hero field
-    
-    # Re-analyze with the selected player's data
-    analyzer = MatchAnalyzer()
-    
-    # Build analysis input from selected player
-    analysis_input = {
-        "match_id": match.match_id,
-        "duration_minutes": match.duration_minutes,
-        "hero_name": request.hero_name,
-        "result": match.result,
-        "kills": metrics["kills"],
-        "deaths": metrics["deaths"],
-        "assists": metrics["assists"],
-        "gpm": metrics["gpm"],
-        "xpm": metrics["xpm"],
-        "last_hits": metrics["last_hits"],
-        "denies": metrics["denies"],
-        "hero_damage": metrics["hero_damage"],
-        "tower_damage": metrics["tower_damage"],
-        "hero_healing": metrics["hero_healing"],
-        "items": metrics["items"],
-        "item_timings": metrics["item_timings"],
-        "full_data": selected_player
-    }
-    
-    analysis = analyzer.analyze_match(analysis_input)
-    
-    # Merge analysis metrics with extracted metrics
-    full_metrics = analysis["metrics"].copy()
-    full_metrics.update({
-        "overall_score": analysis["overall_score"],
-        "strengths": analysis["strengths"],
-        "weaknesses": analysis["weaknesses"],
-        "power_spikes": analysis["power_spikes"],
-        "mistakes": analysis["mistakes"]
-    })
-    
-    # Update match with new metrics
-    match.metrics = full_metrics
-    match.advice = analysis["advice"]
-    
-    db.commit()
-    db.refresh(match)
-    
-    logger.info(f"Hero selected: {request.hero_name} for match {match_id} by user {current_user.id}")
-    
-    return SelectHeroResponse(
-        match_id=match.match_id,
-        selected_hero=request.hero_name,
-        metrics=full_metrics,
-        parsed_data=match.parsed_data
-    )
+        # Build analysis input from selected player
+        analysis_input = {
+            "match_id": match.match_id,
+            "duration_minutes": match.duration_minutes,
+            "hero_name": request.hero_name,
+            "result": match.result,
+            "kills": metrics["kills"],
+            "deaths": metrics["deaths"],
+            "assists": metrics["assists"],
+            "gpm": metrics["gpm"],
+            "xpm": metrics["xpm"],
+            "last_hits": metrics["last_hits"],
+            "denies": metrics["denies"],
+            "hero_damage": metrics["hero_damage"],
+            "tower_damage": metrics["tower_damage"],
+            "hero_healing": metrics["hero_healing"],
+            "items": metrics["items"],
+            "item_timings": metrics["item_timings"],
+            "full_data": selected_player
+        }
+        
+        analysis = analyzer.analyze_match(analysis_input)
+        
+        # Merge analysis metrics with extracted metrics
+        full_metrics = analysis["metrics"].copy()
+        full_metrics.update({
+            "overall_score": analysis["overall_score"],
+            "strengths": analysis["strengths"],
+            "weaknesses": analysis["weaknesses"],
+            "power_spikes": analysis["power_spikes"],
+            "mistakes": analysis["mistakes"]
+        })
+        
+        # Update match with new metrics
+        match.metrics = full_metrics
+        match.advice = analysis["advice"]
+        
+        db.commit()
+        db.refresh(match)
+        
+        logger.info(f"Hero selected: {request.hero_name} for match {match_id} by user {current_user.id}")
+        
+        return SelectHeroResponse(
+            match_id=match.match_id,
+            selected_hero=request.hero_name,
+            metrics=full_metrics,
+            parsed_data=match.parsed_data
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"SelectHero Failed: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Hero selection failed: {str(e)}"
+        )
