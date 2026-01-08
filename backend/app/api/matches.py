@@ -73,16 +73,39 @@ def _extract_heroes_from_match(parsed_data: Optional[dict]) -> List[dict]:
             steam_id = None
             team = "radiant" if idx < 5 else "dire"
         
-        # CRITICAL: Strip 'npc_dota_hero_' prefix for OpenDota image URLs!
-        # OpenDota expects: 'pudge', not 'npc_dota_hero_pudge'
-        short_name = raw_hero_name.replace("npc_dota_hero_", "") if raw_hero_name else "unknown"
+        # CRITICAL: Map internal names to image CDN names
+        # Some icons have different names in the CDN than internal IDs
+        raw_name = raw_hero_name or "unknown"
+        short_name = raw_name.replace("npc_dota_hero_", "")
+        
+        # Image mapping (Internal -> CDN Name)
+        image_mapping = {
+            "zuus": "zeus",
+            "windrunner": "windranger",
+            "necrolyte": "necrophos",
+            "treant": "treant_protector",
+            "obsidian_destroyer": "outworld_destroyer",
+            "furion": "nature_prophet",
+            "rattletrap": "clockwerk",
+            "shredder": "timbersaw",
+            "skeleton_king": "wraith_king",
+            "doom_bringer": "doom",
+            "wisp": "io",
+            "magnataur": "magnus",
+            "life_stealer": "lifestealer",
+            "abyssal_underlord": "underlord",
+            "nevermore": "nevermore", # Shadow Fiend
+            "magnataur": "magnus"
+        }
+        
+        image_name = image_mapping.get(short_name, short_name)
         
         # Generate display name from short name
-        display_name = short_name.replace("_", " ").title()
+        display_name = image_name.replace("_", " ").title()
         
         heroes.append({
             "player_id": idx,
-            "hero_name": short_name,  # Use short name for OpenDota compatibility
+            "hero_name": image_name,  # Use name compatible with official CDN
             "hero_display_name": display_name,
             "team": team,
             "position": str(position) if position else "unknown",
@@ -132,28 +155,11 @@ async def lookup_match(
         
         logger.info(f"Match data fetched from OpenDota")
         
-        # Extract heroes from match_data.players
-        # CRITICAL: Use SHORT name for OpenDota image compatibility
-        heroes = []
-        for idx in range(min(10, len(match_data.get('players', [])))):
-            player = match_data['players'][idx]
-            raw_name = player.get('hero_name', 'unknown')
-            # OpenDota API often returns short name like 'pudge', but let's be safe
-            short_name = raw_name.replace("npc_dota_hero_", "") if raw_name else "unknown"
-            
-            heroes.append({
-                "player_id": idx,
-                "hero_name": short_name,  # Short name for OpenDota
-                "hero_display_name": short_name.replace("_", " ").title(),
-                "team": "radiant" if idx < 5 else "dire",
-                "position": "unknown",
-                "steam_id": str(player.get('account_id', '')) or None,
-                "player_name": player.get('personaname') # Include player_name from OpenDota
-            })
+        # Extract heroes using our robust helper
+        extract_data = {"heroes": match_data.get("players", [])}
+        heroes = _extract_heroes_from_match(extract_data)
         
-        logger.info(f"Extracted {len(heroes)} heroes from OpenDota")
-        if heroes:
-            logger.info(f"  Sample: {heroes[0]}")
+        logger.info(f"Extracted {len(heroes)} heroes from OpenDota using helper")
         
         return {
             "match_id": match_id,
