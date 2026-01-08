@@ -794,33 +794,64 @@ async def select_hero(
         )
     
     # Find the selected hero in parsed_data
+    # 1. Try to find match in 'heroes' list (which has corrected names/data)
+    heroes = match.parsed_data.get("heroes", [])
+    matched_hero_entry = None
+    
+    logger.info(f"SelectHero: Request '{request.hero_name}'. Checking 'heroes' list ({len(heroes)} entries)")
+    
+    # Try exact match or fuzzy match on 'heroes' list
+    for h in heroes:
+        h_name = h.get("hero_name", "unknown")
+        # Normalize
+        h_short = h_name.replace("npc_dota_hero_", "")
+        r_short = request.hero_name.replace("npc_dota_hero_", "")
+        
+        if h_short == r_short:
+            matched_hero_entry = h
+            break
+            
+    # If not found data in heroes, maybe try players directly (fallback)
+    
     players = match.parsed_data.get("players", [])
     selected_player = None
     
-    logger.info(f"SelectHero: Request '{request.hero_name}' vs {len(players)} matched players")
-    
-    for player in players:
-        player_hero = player.get("hero_name", player.get("hero", ""))
-        # Normalize to short names for robust comparison
-        # Frontend sends short name (e.g. "pudge"), DB might have "npc_dota_hero_pudge"
-        p_short = player_hero.replace("npc_dota_hero_", "")
-        r_short = request.hero_name.replace("npc_dota_hero_", "")
+    if matched_hero_entry:
+        pid = matched_hero_entry.get("player_id")
+        logger.info(f"Found matched hero entry. Player ID: {pid}")
         
-        logger.info(f"  Comparing: Player='{p_short}' vs Request='{r_short}'")
-        
-        if p_short == r_short:
-            selected_player = player
-            break
-    
-    if not selected_player:
-        # Try finding by display name or loose match as fallback
+        # 2. Get full stats from 'players' list using player_id
+        if players and pid is not None and 0 <= pid < len(players):
+            selected_player = players[pid]
+            # Ensure hero name is synced in the returned object
+            selected_player["hero_name"] = matched_hero_entry.get("hero_name")
+            selected_player["hero_display_name"] = matched_hero_entry.get("hero_display_name")
+        else:
+             # Fallback if players list is empty/mismatched but we have hero entry
+             selected_player = matched_hero_entry
+             
+    else:
+        # Fallback: legacy search in 'players' list directly
+        logger.info("Hero not found in 'heroes' list. Searching 'players' list directly...")
         for player in players:
-             player_hero = player.get("hero_name", player.get("hero", ""))
-             if request.hero_name.lower() in player_hero.lower():
-                 selected_player = player
-                 break
-                 
+            player_hero = player.get("hero_name", player.get("hero", ""))
+            p_short = player_hero.replace("npc_dota_hero_", "")
+            r_short = request.hero_name.replace("npc_dota_hero_", "")
+            
+            if p_short == r_short:
+                selected_player = player
+                break
+                
+        if not selected_player:
+             # Try finding by display name or loose match as fallback
+            for player in players:
+                 player_hero = player.get("hero_name", player.get("hero", ""))
+                 if request.hero_name.lower() in player_hero.lower():
+                     selected_player = player
+                     break
+    
     if not selected_player:
+        logger.error(f"Hero '{request.hero_name}' NOT found in match {match.match_id}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Hero '{request.hero_name}' not found in match"
