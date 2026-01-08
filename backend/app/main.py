@@ -49,6 +49,15 @@ async def lifespan(app: FastAPI):
         logger.error(f"DEBUG: Could not inspect users table: {e}")
 
 
+    # Load OpenDota hero cache FIRST (before any match processing)
+    try:
+        from app.services.opendota_client import OpenDotaClient
+        hero_count = await OpenDotaClient.load_heroes()
+        logger.info(f"✓ OpenDota hero cache loaded: {hero_count} heroes")
+    except Exception as e:
+        logger.error(f"Failed to load OpenDota hero cache: {e}")
+        # Non-fatal: will use fallback hero_mapping.py
+
     # Run Alembic migrations
     try:
         from alembic.config import Config

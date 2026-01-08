@@ -225,76 +225,107 @@ async def lookup_match(
     db: Session = Depends(get_db)
 ):
     """
-    Look up a match by Dota 2 match ID without needing .dem file upload.
+    Look up a match by Dota 2 match ID using OpenDota API.
+    
+    Strategy:
+    1. Check DB cache first
+    2. Fetch from OpenDota API (with retry logic)
+    3. Validate heroes are not "unknown"
+    4. Save to DB with source='opendota'
     """
     logger.info(f"Looking up match {match_id} for user {current_user.id}")
     
-    # Check if already analyzed
+    # Check if already analyzed with valid data
     existing = db.query(Match).filter(
         Match.match_id == match_id,
         Match.player_id == current_user.id
     ).first()
     
     if existing and existing.parsed_data:
-        logger.info(f"Match {match_id} already analyzed by user")
-        # Use cached heroes if available to avoid re-extraction issues
-        heroes = existing.parsed_data.get("heroes")
-        if not heroes:
-             logger.info("Cached heroes missing, re-extracting...")
-             heroes = _extract_heroes_from_match(existing.parsed_data)
-             
-        return {
-            "match_id": match_id,
-            "status": "already_analyzed",
-            "heroes_in_match": heroes,
-            "parsed_data": existing.parsed_data
-        }
+        heroes = existing.parsed_data.get("heroes", [])
+        
+        # Validate cached data has real heroes (not all unknown)
+        unknown_count = sum(1 for h in heroes if h.get("hero_name") == "unknown")
+        if heroes and unknown_count < 5:
+            logger.info(f"Match {match_id} found in cache with valid heroes")
+            return {
+                "match_id": match_id,
+                "status": "already_analyzed",
+                "source": existing.source or "cached",
+                "heroes_in_match": heroes,
+                "parsed_data": existing.parsed_data
+            }
+        else:
+            logger.warning(f"Cached match {match_id} has {unknown_count} unknown heroes, re-fetching...")
+            # Delete stale record
+            db.delete(existing)
+            db.commit()
     
-    # Fetch from OpenDota API
+    # Fetch from OpenDota API with retry logic
     try:
-        opendota_client = OpenDotaClient()
-        match_data = await opendota_client.get_match(match_id)
+        from app.services.opendota_client import get_opendota_client
         
-        logger.info(f"Match data fetched from OpenDota")
+        client = get_opendota_client()
+        match_data = await client.get_match(match_id)
         
-        # Prepare parsed data structure
-        heroes = _extract_heroes_from_match(match_data)
+        logger.info(f"✓ OpenDota returned match {match_id}")
         
-        # We must SAVE this match to database so that select-hero can find it
-        # Save as "analyzed" but without metrics yet, or partial
+        # Heroes are already resolved by the new client
+        heroes = match_data.get("heroes", [])
         
-        # Create match record
+        # Validate: check for unknown heroes
+        unknown_count = sum(1 for h in heroes if h.get("hero_name") == "unknown")
+        if unknown_count > 5:
+            logger.warning(f"OpenDota returned {unknown_count} unknown heroes - hero cache may be empty")
+        
+        # Determine result based on radiant_win (will be refined when user selects hero)
+        radiant_win = match_data.get("radiant_win")
+        result = "WIN" if radiant_win else "LOSS"  # Placeholder, refined on hero selection
+        
+        # Create match record with source tracking
         new_match = Match(
-             match_id=match_id,
-             player_id=current_user.id,
-             hero_name="unknown", # Will be updated by select-hero
-             duration_minutes=match_data.get("duration", 0) // 60,
-             result="WIN" if match_data.get("radiant_win") else "LOSS", # Approximation
-             parsed_data={"heroes": heroes, "raw": match_data},
-             metrics={},
-             advice=[],
-             created_at=datetime.utcnow()
+            match_id=match_id,
+            player_id=current_user.id,
+            hero_name="pending",  # Will be set on hero selection
+            duration_minutes=match_data.get("duration_minutes", 0),
+            result=result,
+            parsed_data={
+                "heroes": heroes,
+                "players": match_data.get("players", []),
+                "radiant_win": radiant_win,
+                "radiant_score": match_data.get("radiant_score", 0),
+                "dire_score": match_data.get("dire_score", 0),
+                "game_mode": match_data.get("game_mode"),
+                "picks_bans": match_data.get("picks_bans", []),
+            },
+            metrics={},
+            advice=[],
+            source="opendota",
+            created_at=datetime.utcnow()
         )
         db.add(new_match)
         db.commit()
         db.refresh(new_match)
         
-        logger.info(f"Lookup: Saved draft match {match_id} (ID={new_match.id}) for user {current_user.id}")
+        logger.info(f"✓ Saved match {match_id} (ID={new_match.id}) from OpenDota for user {current_user.id}")
 
         return {
             "match_id": match_id,
             "status": "found",
+            "source": "opendota",
             "heroes_in_match": heroes,
-            "duration_minutes": match_data.get("duration", 0) // 60,
-            "radiant_win": match_data.get("radiant_win"),
+            "duration_minutes": match_data.get("duration_minutes", 0),
+            "radiant_win": radiant_win,
             "message": "Match found. Select your hero to analyze."
         }
     
     except Exception as e:
-        logger.error(f"Failed to lookup match: {str(e)}")
+        logger.error(f"OpenDota lookup failed for match {match_id}: {str(e)}")
+        
+        # Return actionable error message
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Match not found or unavailable: {str(e)}"
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Could not fetch match from OpenDota. The match may not exist or OpenDota is temporarily unavailable. Try again in 30 seconds. Error: {str(e)}"
         )
 
 

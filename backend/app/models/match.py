@@ -37,6 +37,7 @@ class Match(Base):
     advice = Column(JSON, nullable=True)  # Generated advice
     selected_hero_name = Column(String(100), nullable=True)  # User's selected hero
     selected_at = Column(DateTime, nullable=True)  # When hero was selected
+    source = Column(String(20), nullable=True)  # Data source: 'opendota' or 'clarity'
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     
     # Relationships
