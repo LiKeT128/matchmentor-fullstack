@@ -46,25 +46,52 @@ def _extract_heroes_from_match(parsed_data: Optional[dict]) -> List[dict]:
         List of hero dictionaries with player info.
     """
     if not parsed_data:
+        logger.warning("_extract_heroes: parsed_data is None or empty")
         return []
     
     heroes = []
-    players = parsed_data.get("players", [])
     
-    for idx, player in enumerate(players):
-        hero_name = player.get("hero_name", player.get("hero", "unknown"))
+    # Try 'heroes' key first (from our enhanced parser), then 'players' as fallback
+    heroes_raw = parsed_data.get("heroes", [])
+    if heroes_raw:
+        logger.info(f"_extract_heroes: Found {len(heroes_raw)} entries in 'heroes' key")
+    else:
+        heroes_raw = parsed_data.get("players", [])
+        logger.info(f"_extract_heroes: Falling back to 'players' key, found {len(heroes_raw)} entries")
+    
+    for idx, entry in enumerate(heroes_raw):
+        # Handle both dict entries and simple string entries
+        if isinstance(entry, dict):
+            raw_hero_name = entry.get("hero_name", entry.get("hero", "unknown"))
+            position = entry.get("position", entry.get("lane_role", "unknown"))
+            steam_id = entry.get("steam_id", entry.get("account_id"))
+            team = entry.get("team", "radiant" if idx < 5 else "dire")
+        else:
+            # Entry is a string (hero name)
+            raw_hero_name = str(entry) if entry else "unknown"
+            position = "unknown"
+            steam_id = None
+            team = "radiant" if idx < 5 else "dire"
         
-        # Generate display name from internal name
-        display_name = hero_name.replace("npc_dota_hero_", "").replace("_", " ").title()
+        # CRITICAL: Strip 'npc_dota_hero_' prefix for OpenDota image URLs!
+        # OpenDota expects: 'pudge', not 'npc_dota_hero_pudge'
+        short_name = raw_hero_name.replace("npc_dota_hero_", "") if raw_hero_name else "unknown"
+        
+        # Generate display name from short name
+        display_name = short_name.replace("_", " ").title()
         
         heroes.append({
             "player_id": idx,
-            "hero_name": hero_name,
+            "hero_name": short_name,  # Use short name for OpenDota compatibility
             "hero_display_name": display_name,
-            "team": "radiant" if idx < 5 else "dire",
-            "position": player.get("position", player.get("lane_role", "unknown")),
-            "steam_id": str(player.get("steam_id", player.get("account_id", ""))) or None
+            "team": team,
+            "position": str(position) if position else "unknown",
+            "steam_id": str(steam_id) if steam_id else None
         })
+    
+    logger.info(f"_extract_heroes: Returning {len(heroes)} heroes")
+    if heroes:
+        logger.info(f"  Sample: {heroes[0]}")
     
     return heroes
 
@@ -89,7 +116,8 @@ async def lookup_match(
     
     if existing and existing.parsed_data:
         logger.info(f"Match {match_id} already analyzed by user")
-        heroes = existing.parsed_data.get("heroes", [])
+        # Use the helper function which strips prefix correctly
+        heroes = _extract_heroes_from_match(existing.parsed_data)
         return {
             "match_id": match_id,
             "status": "already_analyzed",
@@ -105,18 +133,26 @@ async def lookup_match(
         logger.info(f"Match data fetched from OpenDota")
         
         # Extract heroes from match_data.players
-        heroes = [
-            {
+        # CRITICAL: Use SHORT name for OpenDota image compatibility
+        heroes = []
+        for idx in range(min(10, len(match_data.get('players', [])))):
+            player = match_data['players'][idx]
+            raw_name = player.get('hero_name', 'unknown')
+            # OpenDota API often returns short name like 'pudge', but let's be safe
+            short_name = raw_name.replace("npc_dota_hero_", "") if raw_name else "unknown"
+            
+            heroes.append({
                 "player_id": idx,
-                "hero_name": f"npc_dota_hero_{match_data['players'][idx]['hero_name']}" if 'npc_dota_hero' not in str(match_data['players'][idx]['hero_name']) else match_data['players'][idx]['hero_name'],
+                "hero_name": short_name,  # Short name for OpenDota
+                "hero_display_name": short_name.replace("_", " ").title(),
                 "team": "radiant" if idx < 5 else "dire",
-                "steam_id": str(match_data['players'][idx].get('account_id', '')) or None,
-                "kills": match_data['players'][idx].get('kills'),
-                "deaths": match_data['players'][idx].get('deaths'),
-                "assists": match_data['players'][idx].get('assists'),
-            }
-            for idx in range(min(10, len(match_data.get('players', []))))
-        ]
+                "position": "unknown",
+                "steam_id": str(player.get('account_id', '')) or None,
+            })
+        
+        logger.info(f"Extracted {len(heroes)} heroes from OpenDota")
+        if heroes:
+            logger.info(f"  Sample: {heroes[0]}")
         
         return {
             "match_id": match_id,
@@ -508,11 +544,24 @@ async def get_match(
         mapped_heroes = []
         for h in heroes_list:
             # Create a copy or new dict to match schema
-            h_schema = h.copy()
+            h_schema = h.copy() if isinstance(h, dict) else {"hero_name": str(h)}
+            
+            # CRITICAL: Strip 'npc_dota_hero_' prefix for OpenDota images
+            raw_name = h_schema.get("hero_name", "unknown")
+            short_name = raw_name.replace("npc_dota_hero_", "") if raw_name else "unknown"
+            h_schema["hero_name"] = short_name
+            
             if "hero_display_name" not in h_schema:
-                 # Simple formatted name for now
-                 name = h_schema.get("hero_name", "unknown")
-                 h_schema["hero_display_name"] = name.replace("npc_dota_hero_", "").replace("_", " ").title()
+                 h_schema["hero_display_name"] = short_name.replace("_", " ").title()
+            
+            # Ensure required fields
+            if "player_id" not in h_schema:
+                h_schema["player_id"] = heroes_list.index(h)
+            if "team" not in h_schema:
+                h_schema["team"] = "radiant" if h_schema.get("player_id", 0) < 5 else "dire"
+            if "position" not in h_schema:
+                h_schema["position"] = "unknown"
+                
             mapped_heroes.append(h_schema)
 
 
