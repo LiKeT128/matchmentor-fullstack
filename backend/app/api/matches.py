@@ -59,6 +59,33 @@ def _extract_heroes_from_match(parsed_data: Optional[dict]) -> List[dict]:
         heroes_raw = parsed_data.get("players", [])
         logger.info(f"_extract_heroes: Falling back to 'players' key, found {len(heroes_raw)} entries")
 
+    # Pre-process to find GPM/LH for role inference
+    radiant_players = []
+    dire_players = []
+    
+    for idx, entry in enumerate(heroes_raw):
+        # Extract basic farming metrics
+        if isinstance(entry, dict):
+             gpm = entry.get("gold_per_min", entry.get("gpm", 0))
+             lh = entry.get("last_hits", entry.get("lh", 0))
+        else:
+             gpm = 0
+             lh = 0
+             
+        info = {"idx": idx, "gpm": gpm or 0, "lh": lh or 0}
+        if idx < 5:
+            radiant_players.append(info)
+        else:
+            dire_players.append(info)
+            
+    # Sort by GPM to find cores (Top 3) vs supports (Bottom 2)
+    radiant_players.sort(key=lambda x: x["gpm"], reverse=True)
+    dire_players.sort(key=lambda x: x["gpm"], reverse=True)
+    
+    # Set of indices that are likely cores
+    radiant_cores = {p["idx"] for p in radiant_players[:3]}
+    dire_cores = {p["idx"] for p in dire_players[:3]}
+    
     # Import locally to avoid circular potential
     from app.services.hero_mapping import get_hero_name
     
@@ -71,6 +98,8 @@ def _extract_heroes_from_match(parsed_data: Optional[dict]) -> List[dict]:
         team = "radiant" if idx < 5 else "dire"
         player_name = None
         
+        is_core = (idx in radiant_cores) if idx < 5 else (idx in dire_cores)
+        
         # Handle both dict entries and simple string entries
         if isinstance(entry, dict):
             # 1. Get Hero Name & ID
@@ -78,52 +107,49 @@ def _extract_heroes_from_match(parsed_data: Optional[dict]) -> List[dict]:
             hero_id = entry.get("hero_id")
             
             # Fallback: If name is unknown/missing but we have ID, lookup name
-            # Note: "npc_dota_hero_unknown" is what get_hero_name returns if not found
             if (not raw_hero_name or "unknown" in str(raw_hero_name).lower()) and hero_id:
                 try:
                     mapped_name = get_hero_name(int(hero_id))
-                    # Only override if we got a real name (not the unknown placeholder unless original was also bad)
                     if mapped_name and "unknown" not in mapped_name:
                          raw_hero_name = mapped_name
                 except Exception:
                     pass
             
             # 2. Get Position/Lane
-            # Prioritize explicit 'position' field if valid
             p_val = entry.get("position")
             if p_val and str(p_val) != "unknown":
                 position = p_val
             else:
-                # Infer from 'lane' + Team
-                # Lanes: 1=Bot, 2=Mid, 3=Top, 4/5=Jungle/Roam
+                # Infer from 'lane' + Team + Core/Support status
                 lane = entry.get("lane")
                 if lane is not None:
                     try:
                         lane_val = int(lane)
-                        # Determine team (some APIs provide isRadiant or team field)
-                        is_radiant = (idx < 5) # Default assumption
+                        is_radiant = (idx < 5)
+                        # Explicit overwrite if available
                         if entry.get("isRadiant") is not None:
                             is_radiant = entry.get("isRadiant")
-                        elif entry.get("team") == "radiant":
-                            is_radiant = True
-                        elif entry.get("team") == "dire":
-                            is_radiant = False
-                        # If team was passed as int (0/1), handle that if needed, but usually string or bool
-                        
-                        team = "radiant" if is_radiant else "dire"
                         
                         if lane_val == 2: # Mid
                             position = "Mid Lane"
                         elif lane_val == 1: # Bot
-                            position = "Safe Lane" if is_radiant else "Off Lane"
+                            if is_radiant: # Radiant Safe
+                                position = "Safe Lane" if is_core else "Hard Support"
+                            else: # Dire Off
+                                position = "Off Lane" if is_core else "Soft Support"
                         elif lane_val == 3: # Top
-                            position = "Off Lane" if is_radiant else "Safe Lane"
+                            if is_radiant: # Radiant Off
+                                position = "Off Lane" if is_core else "Soft Support"
+                            else: # Dire Safe
+                                position = "Safe Lane" if is_core else "Hard Support"
                         elif lane_val in [4, 5]: # Jungle/Roam
-                             # Distinguish slightly if possible, or just Roaming
-                            position = "Roaming"
+                             position = "Roaming"
                     except:
                         pass
-                
+                else:
+                    # No lane data? fallback to role guess
+                    position = "Core" if is_core else "Support"
+
             # 3. Get User Info
             steam_id = entry.get("steam_id", entry.get("account_id"))
             
@@ -136,28 +162,24 @@ def _extract_heroes_from_match(parsed_data: Optional[dict]) -> List[dict]:
         else:
             # Entry is a string (hero name)
             raw_hero_name = str(entry) if entry else "unknown"
+            # Basic fallback for strings
+            position = "Core" if is_core else "Support"
         
         # CRITICAL: Map internal names to image CDN names
-        # Some icons have different names in the CDN than internal IDs
         raw_name = str(raw_hero_name) if raw_hero_name else "unknown"
         
-        # Ensure proper prefix if missing (for mapping logic below)
-        if not raw_name.startswith("npc_dota_hero_") and raw_name != "unknown":
-             # It might be a short name already? let's assume raw names usually come with prefix from parser/api
-             pass 
-
         short_name = raw_name.replace("npc_dota_hero_", "")
         
         # Image mapping (Internal -> CDN Name)
-        # Image mapping (Internal -> CDN Name)
+        # Only map exceptions where internal name != CDN name
         image_mapping = {
             "zuus": "zeus",
             "windrunner": "windranger",
             "necrolyte": "necrophos",
             "treant": "treant_protector",
             "obsidian_destroyer": "outworld_destroyer",
-            "furion": "natures_prophet",
-            "rattletrap": "clockwerk",
+            # "furion": "natures_prophet", # REVERTED: Internal 'furion' maps to 'furion.png' correctly
+            "rattletrap": "clockwerk", # 'clockwerk.png' is standard? 'rattletrap.png' also exists? Using clockwerk to be safe if common.
             "shredder": "timbersaw",
             "skeleton_king": "wraith_king",
             "doom_bringer": "doom",
@@ -165,16 +187,13 @@ def _extract_heroes_from_match(parsed_data: Optional[dict]) -> List[dict]:
             "magnataur": "magnus",
             "life_stealer": "lifestealer",
             "abyssal_underlord": "underlord",
-            "nevermore": "shadow_fiend",
-            "centaur": "centaur", # centaur_warrunner in some places, but check? usually centaur is fine or centaur_warrunner
+            # "nevermore": "shadow_fiend", # internal is 'nevermore', cdn 'shadow_fiend' or 'nevermore'? Nevermore is safer?
             "queenofpain": "queen_of_pain",
             "vengefulspirit": "vengeful_spirit",
-            "antimage": "antimage", # Verify if anti-mage? Valve CDN uses 'antimage.png' usually.
+            "antimage": "antimage", 
             "broodmother": "broodmother",
-            "clockwerk": "clockwerk",
             "night_stalker": "night_stalker",
-            "centaur": "centaur_warrunner",
-            "magna_taur": "magnus" # duplicate check
+            "centaur": "centaur",
         }
         
         image_name = image_mapping.get(short_name, short_name)

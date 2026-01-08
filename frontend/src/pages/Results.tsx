@@ -231,11 +231,22 @@ export const Results = () => {
                         <h3 className="text-xl font-bold text-white mb-6">Select Hero to Analyze</h3>
                         <div className="grid grid-cols-2 sm:grid-cols-5 md:grid-cols-10 gap-3">
                             {allHeroes.map(hero => {
-                                const heroShortName = hero.replace('npc_dota_hero_', '');
-                                const heroId = getHeroId(hero);
-                                const imageUrl = heroId
-                                    ? `https://api.opendota.com/apps/dota2/images/heroes/${heroId}_lg.png`
-                                    : `https://api.opendota.com/apps/dota2/images/heroes/${heroShortName}_full.png`; // Spring-back to name if ID not found (unlikely for standard heroes)
+                                const heroShortName = hero.replace('npc_dota_hero_', '')
+                                    // Manual frontend fixes for some edge cases if needed, but backend handles most
+                                    .replace('furion', 'furion')
+                                    .replace('zuus', 'zeus')
+                                    .replace('necrolyte', 'necrophos')
+                                    .replace('windrunner', 'windranger')
+                                    .replace('obsidian_destroyer', 'outworld_destroyer')
+                                    .replace('shredder', 'timbersaw')
+                                    .replace('rattletrap', 'clockwerk')
+                                    .replace('doom_bringer', 'doom')
+                                    .replace('nevermore', 'shadow_fiend')
+                                    .replace('skeleton_king', 'wraith_king')
+                                    .replace('magnataur', 'magnus')
+                                    .replace('wisp', 'io');
+
+                                const imageUrl = `https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/heroes/${heroShortName}.png`;
 
                                 return (
                                     <button
@@ -252,15 +263,13 @@ export const Results = () => {
                                     >
                                         <div className="relative w-full aspect-[128/72] overflow-hidden rounded-lg">
                                             <img
-                                                src={imageUrl}
+                                                src={`https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/heroes/${heroShortName}.png`}
                                                 alt={heroShortName}
                                                 className="w-full h-full object-cover transition-transform group-hover:scale-110"
                                                 onError={(e) => {
-                                                    // Fallback to placeholder if all else fails
                                                     const target = e.target as HTMLImageElement;
-                                                    if (!target.src.includes('placeholder')) {
-                                                        target.src = 'https://via.placeholder.com/128x72?text=Hero';
-                                                    }
+                                                    target.onerror = null;
+                                                    target.src = 'https://placehold.co/128x72?text=Unknown';
                                                 }}
                                             />
                                             {currentHero === hero && (
