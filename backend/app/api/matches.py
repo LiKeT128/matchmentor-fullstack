@@ -187,7 +187,7 @@ def _extract_heroes_from_match(parsed_data: Optional[dict]) -> List[dict]:
             "magnataur": "magnus",
             "life_stealer": "lifestealer",
             "abyssal_underlord": "underlord",
-            # "nevermore": "shadow_fiend", # internal is 'nevermore', cdn 'shadow_fiend' or 'nevermore'? Nevermore is safer?
+            #"nevermore": "shadow_fiend", # REMOVED: CDN uses 'nevermore.png'
             "queenofpain": "queen_of_pain",
             "vengefulspirit": "vengeful_spirit",
             "antimage": "antimage", 
@@ -253,12 +253,30 @@ async def lookup_match(
         
         logger.info(f"Match data fetched from OpenDota")
         
-        # Extract heroes using our robust helper
-        extract_data = {"heroes": match_data.get("players", [])}
-        heroes = _extract_heroes_from_match(extract_data)
+        # Prepare parsed data structure
+        heroes = _extract_heroes_from_match(match_data)
         
-        logger.info(f"Extracted {len(heroes)} heroes from OpenDota using helper")
+        # We must SAVE this match to database so that select-hero can find it
+        # Save as "analyzed" but without metrics yet, or partial
         
+        # Create match record
+        new_match = Match(
+             match_id=match_id,
+             player_id=current_user.id,
+             hero_name="unknown", # Will be updated by select-hero
+             duration_minutes=match_data.get("duration", 0) // 60,
+             result="WIN" if match_data.get("radiant_win") else "LOSS", # Approximation
+             parsed_data={"heroes": heroes, "raw": match_data},
+             metrics={},
+             advice=[],
+             created_at=datetime.utcnow()
+        )
+        db.add(new_match)
+        db.commit()
+        db.refresh(new_match)
+        
+        logger.info(f"Lookup: Saved draft match {match_id} (ID={new_match.id}) for user {current_user.id}")
+
         return {
             "match_id": match_id,
             "status": "found",
