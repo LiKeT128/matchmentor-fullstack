@@ -224,39 +224,49 @@ async def upload_match(
                 opendota_client = OpenDotaClient()
                 # Ensure match_id is available
                 match_id = parsed.get("match_id")
+                
                 if match_id and str(match_id) != "unknown":
                     od_match = await opendota_client.get_match(str(match_id))
                     
                     if od_match and "players" in od_match:
+                        from app.services.hero_mapping import get_hero_name
                         fallback_heroes = []
+                        
                         for idx, p in enumerate(od_match["players"]):
-                            # OpenDota usually returns short name 'pudge', not 'npc_dota_hero_pudge'
-                            # But our internal storage expects 'npc_dota_hero_' prefix for consistency until final output?
-                            # Wait, we just standardized on STRIPPING it for output.
-                            # So let's store it WITHOUT prefix if possible, or standard 'npc_dota_hero_'?
-                            # ReplayParser stores WITH prefix (mostly).
-                            # matches.py _extract_heroes STRIPS it.
-                            # So we should store WITH prefix here to be consistent with Clarity parser output style,
-                            # so _extract_heroes handles it correctly later.
+                            # CRITICAL FIX: OpenDota might return None for hero_name
+                            # e.g. "hero_id": 57, "hero_name": null
+                            # So we MUST use our local mapping if name is missing
                             
-                            h_name = p.get("hero_name", "")
-                            if h_name and not h_name.startswith("npc_dota_hero_"):
-                                h_name = f"npc_dota_hero_{h_name}"
-                            elif not h_name:
+                            h_name = p.get("hero_name")
+                            h_id = p.get("hero_id")
+                            
+                            if h_id and (not h_name or h_name == "unknown"):
+                                # Map ID to name using our local service
+                                try:
+                                    h_name = get_hero_name(int(h_id))
+                                except:
+                                    pass
+                            
+                            # Final cleanup
+                            if h_name:
+                                # Ensure prefix consistency (matches expected storage format)
+                                if not h_name.startswith("npc_dota_hero_"):
+                                    h_name = f"npc_dota_hero_{h_name}"
+                            else:
                                 h_name = "unknown"
                                 
                             hero_entry = {
                                 "player_id": idx,
                                 "hero_name": h_name,
                                 "team": "radiant" if idx < 5 else "dire",
-                                "position": "unknown", # OpenDota standard endpoint might not have lane role easily accessible in this view
+                                "position": "unknown", 
                                 "steam_id": str(p.get("account_id") or "") or None
                             }
                             fallback_heroes.append(hero_entry)
                         
                         if fallback_heroes:
                             parsed["heroes"] = fallback_heroes
-                            logger.info(f"Successfully recovered {len(fallback_heroes)} heroes from OpenDota API")
+                            logger.info(f"Successfully recovered {len(fallback_heroes)} heroes from OpenDota API (using ID mapping)")
             except Exception as e:
                 logger.error(f"OpenDota fallback failed: {str(e)}")
                 # Continue execution - we don't want to fail the upload just because fallback failed
