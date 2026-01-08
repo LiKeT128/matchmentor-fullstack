@@ -149,13 +149,14 @@ def _extract_heroes_from_match(parsed_data: Optional[dict]) -> List[dict]:
         short_name = raw_name.replace("npc_dota_hero_", "")
         
         # Image mapping (Internal -> CDN Name)
+        # Image mapping (Internal -> CDN Name)
         image_mapping = {
             "zuus": "zeus",
             "windrunner": "windranger",
             "necrolyte": "necrophos",
             "treant": "treant_protector",
             "obsidian_destroyer": "outworld_destroyer",
-            "furion": "nature_prophet",
+            "furion": "natures_prophet",
             "rattletrap": "clockwerk",
             "shredder": "timbersaw",
             "skeleton_king": "wraith_king",
@@ -164,8 +165,16 @@ def _extract_heroes_from_match(parsed_data: Optional[dict]) -> List[dict]:
             "magnataur": "magnus",
             "life_stealer": "lifestealer",
             "abyssal_underlord": "underlord",
-            "nevermore": "nevermore", # Shadow Fiend
-            "magnataur": "magnus"
+            "nevermore": "shadow_fiend",
+            "centaur": "centaur", # centaur_warrunner in some places, but check? usually centaur is fine or centaur_warrunner
+            "queenofpain": "queen_of_pain",
+            "vengefulspirit": "vengeful_spirit",
+            "antimage": "antimage", # Verify if anti-mage? Valve CDN uses 'antimage.png' usually.
+            "broodmother": "broodmother",
+            "clockwerk": "clockwerk",
+            "night_stalker": "night_stalker",
+            "centaur": "centaur_warrunner",
+            "magna_taur": "magnus" # duplicate check
         }
         
         image_name = image_mapping.get(short_name, short_name)

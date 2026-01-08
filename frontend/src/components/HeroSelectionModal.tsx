@@ -70,7 +70,8 @@ export const HeroSelectionModal: React.FC<HeroSelectionModalProps> = ({
                                         alt={hero.hero_display_name}
                                         className={styles.heroImage}
                                         onError={(e) => {
-                                            (e.target as HTMLImageElement).src = 'https://raw.githubusercontent.com/dotaconfig/heros/master/icons/unknown.png';
+                                            e.currentTarget.onerror = null;
+                                            e.currentTarget.src = 'https://placehold.co/100x60?text=?';
                                         }}
                                     />
                                     <div className={styles.heroInfo}>
@@ -99,11 +100,13 @@ export const HeroSelectionModal: React.FC<HeroSelectionModalProps> = ({
                                     title={`${hero.hero_display_name} (${hero.position})`}
                                 >
                                     <img
-                                        src={`https://api.opendota.com/apps/dota2/images/heroes/${hero.hero_name}_full.png`}
+                                        src={`https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/heroes/${hero.hero_name}.png`}
                                         alt={hero.hero_display_name}
                                         className={styles.heroImage}
                                         onError={(e) => {
-                                            (e.target as HTMLImageElement).src = 'https://via.placeholder.com/48';
+                                            // Fallback to a simple colored box or transparent if external fails
+                                            e.currentTarget.onerror = null; // Prevent loop
+                                            e.currentTarget.src = 'https://placehold.co/100x60?text=?';
                                         }}
                                     />
                                     <div className={styles.heroInfo}>
