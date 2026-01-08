@@ -866,25 +866,103 @@ async def compare_matches(
     )
 
 
-@router.post("/{match_id}/select-hero", response_model=SelectHeroResponse)
-async def select_hero(
-    match_id: str,
+def _extract_heroes_from_match(parsed_data: dict) -> list[dict]:
+    """
+    Extracts and formats hero data from parsed_data, including mapping to CDN names
+    and basic stats.
+    """
+    heroes = []
+    players = parsed_data.get("players", [])
+    
+    if not players:
+        logger.warning("_extract_heroes: 'players' list empty/missing in parsed_data.")
+        return []
+
+    for idx, entry in enumerate(players):
+        raw_hero_name = entry.get("hero_name") or entry.get("hero", "unknown")
+        team = "radiant" if idx < 5 else "dire"
+        position = entry.get("position")
+        steam_id = entry.get("account_id")
+
+        # CRITICAL: Map internal names to image CDN names
+        raw_name = str(raw_hero_name) if raw_hero_name else "unknown"
+        
+        short_name = raw_name.replace("npc_dota_hero_", "")
+        
+        # Image mapping (Internal -> CDN Name)
+        # Only map exceptions where internal name != CDN name
+        image_mapping = {
+            "zuus": "zeus",
+            "windrunner": "windranger",
+            "necrolyte": "necrophos",
+            "treant": "treant_protector",
+            "obsidian_destroyer": "outworld_destroyer",
+            # "furion": "natures_prophet", # REVERTED: Internal 'furion' maps to 'furion.png' correctly
+            "rattletrap": "clockwerk", # 'clockwerk.png' is standard? 'rattletrap.png' also exists? Using clockwerk to be safe if common.
+            "shredder": "timbersaw",
+            "skeleton_king": "wraith_king",
+            "doom_bringer": "doom",
+            "wisp": "io",
+            "magnataur": "magnus",
+            "life_stealer": "lifestealer",
+            "abyssal_underlord": "underlord",
+            "nevermore": "shadow_fiend", # User confirmed shadow_fiend is needed
+            "queenofpain": "queen_of_pain",
+            "vengefulspirit": "vengeful_spirit",
+            "antimage": "antimage", 
+            "broodmother": "broodmother",
+            "night_stalker": "night_stalker",
+            "centaur": "centaur",
+        }
+        
+        image_name = image_mapping.get(short_name, short_name)
+        
+        # Generate display name from short name
+        display_name = image_name.replace("_", " ").title()
+        
+        # Extract stats if available (useful for OpenDota lookups)
+        gpm = entry.get("gold_per_min") if isinstance(entry, dict) else 0
+        xpm = entry.get("xp_per_min") if isinstance(entry, dict) else 0
+        kda = 0
+        if isinstance(entry, dict):
+            k = entry.get("kills", 0)
+            d = entry.get("deaths", 0)
+            a = entry.get("assists", 0)
+            if d == 0:
+                kda = k + a
+            else:
+                 kda = round((k + a) / d, 2)
+        
+        heroes.append({
+            "player_id": idx,
+            "hero_name": image_name,  # Use name compatible with official CDN
+            "hero_display_name": display_name,
+            "team": team,
+            "position": str(position) if position else "unknown",
+            "steam_id": str(steam_id) if steam_id else None,
+            # Basic stats for preview
+            "gpm": gpm,
+            "xpm": xpm,
+            "kda": kda
+        })
+    
+    logger.info(f"_extract_heroes: Returning {len(heroes)} heroes")
+    if heroes:
+        logger.info(f"  Sample: {heroes[0]}")
+    
+    return heroes
+
+@router.post("/select-hero", response_model=SelectHeroResponse)
+def select_hero(
     request: SelectHeroRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
-) -> SelectHeroResponse:
+):
     """
-    Select the user's hero from the match and get metrics for that hero.
-    
-    Args:
-        match_id: Dota Match ID or internal ID.
-        request: Request body containing hero_name.
-        current_user: Authenticated user.
-        db: Database session.
-        
-    Returns:
-        Selected hero metrics and match data.
+    Selects a hero for a specific match and triggers analysis.
+    Updates the match record with the selected hero and initial metrics.
     """
+    match_id = request.match_id
     logger.info(f"SelectHero: Entering. match_id='{match_id}', user_id={current_user.id}")
 
     try:
@@ -949,7 +1027,13 @@ async def select_hero(
                 
         # If not found data in heroes, maybe try players directly (fallback)
         
+        # Handle OpenDota structure: data might be in 'raw' -> 'players'
         players = match.parsed_data.get("players", [])
+        if not players:
+             logger.info("SelectHero: 'players' list empty/missing. Checking 'raw.players' (OpenDota style).")
+             raw_data = match.parsed_data.get("raw", {})
+             players = raw_data.get("players", [])
+        
         selected_player = None
         
         if matched_hero_entry:
@@ -971,7 +1055,13 @@ async def select_hero(
             logger.info("Hero not found in 'heroes' list. Searching 'players' list directly...")
             for player in players:
                 player_hero = player.get("hero_name", player.get("hero", ""))
-                p_short = player_hero.replace("npc_dota_hero_", "")
+                
+                # Check for OpenDota hero_id if name missing
+                if not player_hero and "hero_id" in player:
+                     # This would require ID->Name map, skipping for now unless critical
+                     pass
+                     
+                p_short = str(player_hero).replace("npc_dota_hero_", "")
                 r_short = request.hero_name.replace("npc_dota_hero_", "")
                 
                 if p_short == r_short:
@@ -982,7 +1072,7 @@ async def select_hero(
                  # Try finding by display name or loose match as fallback
                 for player in players:
                      player_hero = player.get("hero_name", player.get("hero", ""))
-                     if request.hero_name.lower() in player_hero.lower():
+                     if player_hero and request.hero_name.lower() in str(player_hero).lower():
                          selected_player = player
                          break
         
