@@ -254,12 +254,28 @@ async def upload_match(
                                     h_name = f"npc_dota_hero_{h_name}"
                             else:
                                 h_name = "unknown"
+                            
+                            # Map Lane ID to Position Text
+                            # 1: Bot, 2: Mid, 3: Top, 4: Jungle, 5: Roam
+                            lane = p.get("lane")
+                            is_radiant = idx < 5
+                            position_name = "unknown"
+                            
+                            if lane:
+                                if lane == 1: # Bot
+                                    position_name = "Safe Lane" if is_radiant else "Off Lane"
+                                elif lane == 2: # Mid
+                                    position_name = "Mid Lane"
+                                elif lane == 3: # Top
+                                    position_name = "Off Lane" if is_radiant else "Safe Lane"
+                                elif lane == 4 or lane == 5:
+                                    position_name = "Jungle" if lane == 4 else "Roaming"
                                 
                             hero_entry = {
                                 "player_id": idx,
                                 "hero_name": h_name,
                                 "team": "radiant" if idx < 5 else "dire",
-                                "position": "unknown", 
+                                "position": position_name, 
                                 "steam_id": str(p.get("account_id") or "") or None
                             }
                             fallback_heroes.append(hero_entry)
