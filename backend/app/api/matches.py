@@ -1030,12 +1030,6 @@ async def select_hero(
         "tower_damage": selected_player.get("tower_damage", 0),
         "hero_healing": selected_player.get("hero_healing", 0),
         
-        # Items (OpenDota provides item_0..item_5)
-        # We might need to map IDs to names later, but for now just raw IDs is fine or skip
-        
-        # Teamfight (simple calc if not available)
-        # participation = (kills + assists) / total_team_kills
-        
         # Advanced (default to 0 if not parsed)
         "damage_ratio": 0.0,
         "gold_efficiency": 0.0,
@@ -1055,40 +1049,19 @@ async def select_hero(
     
     # Compare GPM to rough average
     if gpm < 400 and selected_player.get("position") in ["Core", "Safe Lane", "Mid Lane", "Off Lane"]:
-        "mistakes": [],
+         metrics["weaknesses"].append("Low GPM compared to average")
+         advice.append({
+             "type": "farming",
+             "severity": "warning",
+              "message": f"Your GPM {gpm} is below average for a Core.",
+              "suggestion": "Focus on efficient farming patterns."
+         })
+         
+    if kda < 2.0:
+        metrics["weaknesses"].append("Low KDA ratio")
         
-        # Additional metrics
-        "gpm": selected_player.get("gpm", selected_player.get("gold_per_min", 0)),
-        "xpm": selected_player.get("xpm", selected_player.get("xp_per_min", 0)),
-        "last_hits": selected_player.get("last_hits", selected_player.get("lh", 0)),
-        "denies": selected_player.get("denies", 0),
-        
-        # Damage stats
-        "hero_damage": selected_player.get("hero_damage", 0),
-        "tower_damage": selected_player.get("tower_damage", 0),
-        "hero_healing": selected_player.get("hero_healing", 0),
-        
-        # Combat stats
-        "teamfight_participation": selected_player.get("teamfight_participation", 0),
-        "stuns": selected_player.get("stuns", 0),
-        "obs_placed": selected_player.get("obs_placed", selected_player.get("observer_wards_placed", 0)),
-        "sen_placed": selected_player.get("sen_placed", selected_player.get("sentry_wards_placed", 0)),
-        
-        # Lane phase
-        "lh_10": selected_player.get("lh_t", [0]*10)[-1] if selected_player.get("lh_t") else 0,
-        "gold_10": selected_player.get("gold_t", [0]*10)[-1] if selected_player.get("gold_t") else 0,
-        
-        # Items
-        "items": selected_player.get("items", []),
-        "item_timings": selected_player.get("item_timings", selected_player.get("purchase_log", {})),
-        
-        # Position info
-        "lane": selected_player.get("lane", selected_player.get("lane_role", 0)),
-        "is_roaming": selected_player.get("is_roaming", False),
-        
-        # Full player data for advanced metrics
-        "player_data": selected_player
-    }
+    if kills > 10:
+        metrics["strengths"].append("High kill participation")
     
     # Calculate KDA
     deaths = max(metrics["deaths"], 1)
