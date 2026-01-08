@@ -220,12 +220,15 @@ async def upload_match(
         parsed = parser.parse_replay(temp_file)
         logger.info("Parser returned successfully.")
         
-        # FALLBACK: If parser found no heroes OR mostly "unknown" heroes, try fetching from OpenDota
+        # FALLBACK: If parser found no heroes OR mostly "unknown" heroes, OR "unknown" positions (lanes), try fetching from OpenDota
         heroes = parsed.get("heroes", [])
-        unknown_count = sum(1 for h in heroes if "unknown" in h.get("hero_name", "unknown").lower())
+        unknown_name_count = sum(1 for h in heroes if "unknown" in h.get("hero_name", "unknown").lower())
         
-        if not heroes or len(heroes) == 0 or unknown_count > 5:
-            logger.warning(f"Parser returned {len(heroes)} heroes with {unknown_count} unknown. Attempting OpenDota fallback...")
+        # Check for unknown positions (Clarity parser often misses lanes)
+        unknown_pos_count = sum(1 for h in heroes if "unknown" in str(h.get("position", "unknown")).lower())
+        
+        if not heroes or len(heroes) == 0 or unknown_name_count > 5 or unknown_pos_count > 8:
+            logger.warning(f"Parser missing data: {unknown_name_count} unknown names, {unknown_pos_count} unknown positions. Attempting OpenDota enrichment...")
             try:
                 # Use OpenDotaClient to fetch match data
                 opendota_client = OpenDotaClient()
@@ -794,12 +797,16 @@ async def select_hero(
     players = match.parsed_data.get("players", [])
     selected_player = None
     
+    logger.info(f"SelectHero: Request '{request.hero_name}' vs {len(players)} matched players")
+    
     for player in players:
         player_hero = player.get("hero_name", player.get("hero", ""))
         # Normalize to short names for robust comparison
         # Frontend sends short name (e.g. "pudge"), DB might have "npc_dota_hero_pudge"
         p_short = player_hero.replace("npc_dota_hero_", "")
         r_short = request.hero_name.replace("npc_dota_hero_", "")
+        
+        logger.info(f"  Comparing: Player='{p_short}' vs Request='{r_short}'")
         
         if p_short == r_short:
             selected_player = player
