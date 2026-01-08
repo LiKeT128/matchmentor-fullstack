@@ -9,6 +9,7 @@ import glob
 import sys
 from typing import Dict, Any, Optional, List
 
+from app.services.hero_mapping import get_hero_name
 from app.config import get_settings
 
 settings = get_settings()
@@ -499,6 +500,7 @@ class ReplayParser:
                     
         return None
 
+
     def _extract_all_heroes(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Extract detailed hero list from match data.
@@ -513,7 +515,24 @@ class ReplayParser:
         
         if "players" in data:
             for i, p in enumerate(data["players"]):
-                h_name = p.get("hero_name", p.get("hero", "unknown"))
+                # Use hero_id if available, otherwise try 'hero' (which might be int or str)
+                hero_id_val = p.get("hero_id", p.get("hero"))
+                
+                # If it's an integer, map it. If it's a string, use it.
+                if isinstance(hero_id_val, int):
+                    h_name = get_hero_name(hero_id_val)
+                elif isinstance(hero_id_val, str) and hero_id_val.isdigit():
+                    h_name = get_hero_name(int(hero_id_val))
+                else:
+                    h_name = str(hero_id_val) if hero_id_val else "unknown"
+
+                # Cleanup if it already has npc_dota_hero prefix or not (mapping adds it)
+                if not h_name.startswith("npc_dota_hero_") and h_name != "unknown":
+                     # Double check if it's not unknown_ID
+                     if "unknown_" not in h_name:
+                         # Assume it might be a raw name if not mapped
+                         pass
+
                 team = "radiant" if i < 5 else "dire"
                 
                 hero_entry = {
@@ -521,11 +540,20 @@ class ReplayParser:
                     "hero_name": h_name,
                     "team": team,
                     "position": p.get("position", "unknown"),
-                    "steam_id": str(p.get("steam_id", p.get("account_id", ""))) or None
+                    "steam_id": str(p.get("steam_id", p.get("account_id", ""))) or None,
+                    "kills": p.get("kills", 0),
+                    "deaths": p.get("deaths", 0),
+                    "assists": p.get("assists", 0),
                 }
                 heroes.append(hero_entry)
         
+        # Log results for debugging
+        logger.info(f"✓ Built heroes array with {len(heroes)} heroes")
+        if heroes:
+            logger.info(f"Sample hero: {heroes[0]['hero_name']}")
+            
         return heroes
+
     
     def _determine_result(self, data: Dict[str, Any]) -> str:
         """
