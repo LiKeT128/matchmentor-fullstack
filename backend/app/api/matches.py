@@ -993,11 +993,71 @@ async def select_hero(
         )
     
     # Extract ALL metrics for this player
+    # Note: OpenDota fields are gold_per_min, xp_per_min, last_hits, denies.
+    # Our internal parser fields are gpm, xpm, last_hits, denies.
+    
+    # Try to get metrics from standard keys, then OpenDota keys
+    gpm = selected_player.get("gpm") or selected_player.get("gold_per_min", 0)
+    xpm = selected_player.get("xpm") or selected_player.get("xp_per_min", 0)
+    last_hits = selected_player.get("last_hits", 0)
+    denies = selected_player.get("denies", 0)
+    
+    kills = selected_player.get("kills", 0)
+    deaths = selected_player.get("deaths", 0)
+    assists = selected_player.get("assists", 0)
+    
+    # Calculate KDA
+    if deaths == 0:
+        kda = kills + assists
+    else:
+        kda = round((kills + assists) / deaths, 2)
+
     metrics = {
         # Basic stats
-        "kills": selected_player.get("kills", 0),
-        "deaths": selected_player.get("deaths", 0),
-        "assists": selected_player.get("assists", 0),
+        "kills": kills,
+        "deaths": deaths,
+        "assists": assists,
+        "kda": kda,
+        
+        # Farming
+        "gpm": gpm,
+        "xpm": xpm,
+        "last_hits": last_hits,
+        "denies": denies,
+        
+        # Damage
+        "hero_damage": selected_player.get("hero_damage", 0),
+        "tower_damage": selected_player.get("tower_damage", 0),
+        "hero_healing": selected_player.get("hero_healing", 0),
+        
+        # Items (OpenDota provides item_0..item_5)
+        # We might need to map IDs to names later, but for now just raw IDs is fine or skip
+        
+        # Teamfight (simple calc if not available)
+        # participation = (kills + assists) / total_team_kills
+        
+        # Advanced (default to 0 if not parsed)
+        "damage_ratio": 0.0,
+        "gold_efficiency": 0.0,
+        "lane_efficiency": 0.0,
+        "vision_score": 0.0,
+        "camp_stacking": 0.0,
+        
+        # Lists
+        "strengths": [],
+        "weaknesses": [],
+        "power_spikes": [],
+        "mistakes": []
+    }
+    
+    # Simple advice based on stats
+    advice = []
+    
+    # Compare GPM to rough average
+    if gpm < 400 and selected_player.get("position") in ["Core", "Safe Lane", "Mid Lane", "Off Lane"]:
+        "mistakes": [],
+        
+        # Additional metrics
         "gpm": selected_player.get("gpm", selected_player.get("gold_per_min", 0)),
         "xpm": selected_player.get("xpm", selected_player.get("xp_per_min", 0)),
         "last_hits": selected_player.get("last_hits", selected_player.get("lh", 0)),

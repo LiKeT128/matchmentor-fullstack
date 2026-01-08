@@ -119,7 +119,7 @@ export const HeroSelectionModal: React.FC<HeroSelectionModalProps> = ({
                                 if (heroShortName === 'obsidian_destroyer') heroShortName = 'outworld_destroyer';
                                 if (heroShortName === 'shredder') heroShortName = 'timbersaw';
                                 if (heroShortName === 'doom_bringer') heroShortName = 'doom';
-                                if (heroShortName === 'nevermore') heroShortName = 'shadow_fiend';
+                                // if (heroShortName === 'nevermore') heroShortName = 'shadow_fiend';
                                 if (heroShortName === 'skeleton_king') heroShortName = 'wraith_king';
                                 if (heroShortName === 'magnataur') heroShortName = 'magnus';
                                 if (heroShortName === 'wisp') heroShortName = 'io';
