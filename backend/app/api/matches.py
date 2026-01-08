@@ -872,15 +872,30 @@ def _extract_heroes_from_match(parsed_data: dict) -> list[dict]:
     and basic stats.
     """
     heroes = []
+    
+    # Try standard players list
     players = parsed_data.get("players", [])
     
+    # Fallback to OpenDota raw structure
     if not players:
-        logger.warning("_extract_heroes: 'players' list empty/missing in parsed_data.")
+        logger.info("_extract_heroes: 'players' list empty/missing. Checking 'raw.players'.")
+        raw_data = parsed_data.get("raw", {})
+        players = raw_data.get("players", [])
+    
+    if not players:
+        logger.warning("_extract_heroes: 'players' list empty/missing in parsed_data (checked raw also).")
         return []
 
     for idx, entry in enumerate(players):
         raw_hero_name = entry.get("hero_name") or entry.get("hero", "unknown")
-        team = "radiant" if idx < 5 else "dire"
+        
+        # Determine team
+        team = "radiant"
+        if entry.get("isRadiant") is not None:
+             team = "radiant" if entry["isRadiant"] else "dire"
+        elif idx >= 5: # Fallback based on index
+             team = "dire"
+             
         position = entry.get("position")
         steam_id = entry.get("account_id")
 
