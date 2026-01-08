@@ -5,7 +5,7 @@ import { LoadingSpinner } from '../components/LoadingSpinner';
 import { MetricsDisplay } from '../components/MetricsDisplay';
 import { Charts } from '../components/Charts';
 import { AdviceList } from '../components/AdviceList';
-import { getHeroId } from '../utils/heroMapping';
+
 
 interface Match {
     id: number;
@@ -263,7 +263,7 @@ export const Results = () => {
                                     >
                                         <div className="relative w-full aspect-[128/72] overflow-hidden rounded-lg">
                                             <img
-                                                src={`https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/heroes/${heroShortName}.png`}
+                                                src={imageUrl}
                                                 alt={heroShortName}
                                                 className="w-full h-full object-cover transition-transform group-hover:scale-110"
                                                 onError={(e) => {
