@@ -447,6 +447,7 @@ async def upload_match(
             
             db.commit()
             db.refresh(match)
+            logger.info(f"UploadMatch: Match UPDATED. ID={match.id}, MatchID='{match.match_id}' (Type: {type(match.match_id)}), PlayerID={match.player_id}")
             
             # Extract heroes for selection
             heroes_in_match = _extract_heroes_from_match(match.parsed_data)
@@ -482,6 +483,7 @@ async def upload_match(
         db.add(match)
         db.commit()
         db.refresh(match)
+        logger.info(f"UploadMatch: Match CREATED. ID={match.id}, MatchID='{match.match_id}' (Type: {type(match.match_id)}), PlayerID={match.player_id}")
         
         # Send notification email (non-blocking)
         try:
