@@ -213,9 +213,12 @@ async def upload_match(
         parsed = parser.parse_replay(temp_file)
         logger.info("Parser returned successfully.")
         
-        # FALLBACK: If parser found no heroes (empty list), try fetching from OpenDota
-        if not parsed.get("heroes") or len(parsed["heroes"]) == 0:
-            logger.warning(f"Parser returned 0 heroes for match {parsed.get('match_id')}. Attempting OpenDota fallback...")
+        # FALLBACK: If parser found no heroes OR mostly "unknown" heroes, try fetching from OpenDota
+        heroes = parsed.get("heroes", [])
+        unknown_count = sum(1 for h in heroes if "unknown" in h.get("hero_name", "unknown").lower())
+        
+        if not heroes or len(heroes) == 0 or unknown_count > 5:
+            logger.warning(f"Parser returned {len(heroes)} heroes with {unknown_count} unknown. Attempting OpenDota fallback...")
             try:
                 # Use OpenDotaClient to fetch match data
                 opendota_client = OpenDotaClient()
@@ -227,7 +230,15 @@ async def upload_match(
                     if od_match and "players" in od_match:
                         fallback_heroes = []
                         for idx, p in enumerate(od_match["players"]):
-                            # Normalize hero name
+                            # OpenDota usually returns short name 'pudge', not 'npc_dota_hero_pudge'
+                            # But our internal storage expects 'npc_dota_hero_' prefix for consistency until final output?
+                            # Wait, we just standardized on STRIPPING it for output.
+                            # So let's store it WITHOUT prefix if possible, or standard 'npc_dota_hero_'?
+                            # ReplayParser stores WITH prefix (mostly).
+                            # matches.py _extract_heroes STRIPS it.
+                            # So we should store WITH prefix here to be consistent with Clarity parser output style,
+                            # so _extract_heroes handles it correctly later.
+                            
                             h_name = p.get("hero_name", "")
                             if h_name and not h_name.startswith("npc_dota_hero_"):
                                 h_name = f"npc_dota_hero_{h_name}"
