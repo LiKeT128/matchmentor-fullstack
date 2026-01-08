@@ -865,21 +865,38 @@ async def select_hero(
     Returns:
         Selected hero metrics and match data.
     """
+    logger.info(f"SelectHero: Entering. match_id='{match_id}', user_id={current_user.id}")
+
     # Find match by match_id first (Dota ID), then by internal ID
     match = db.query(Match).filter(
         Match.match_id == match_id,
         Match.player_id == current_user.id
     ).first()
     
+    if match:
+        logger.info(f"SelectHero: Found match by match_id (Dota ID). ID={match.id}")
+    
     if not match and match_id.isdigit():
         val = int(match_id)
+        # Verify length to ensure we don't mix up Dota ID (10 chars) with internal ID
         if val < 100000000:
+            logger.info(f"SelectHero: Attempting fallback to internal ID lookup for {val}")
             match = db.query(Match).filter(
                 Match.id == val,
                 Match.player_id == current_user.id
             ).first()
+            if match:
+                 logger.info(f"SelectHero: Found match by Internal ID. MatchID={match.match_id}")
     
     if not match:
+        logger.error(f"SelectHero: Match NOT FOUND. match_id='{match_id}', user_id={current_user.id}. Query returned None.")
+        # Debug: Check if match exists for ANY user?
+        debug_check = db.query(Match).filter(Match.match_id == match_id).first()
+        if debug_check:
+            logger.error(f"SelectHero: Match DOES exist but for player_id={debug_check.player_id}. Access Denied or ID Mismatch.")
+        else:
+            logger.error("SelectHero: Match does not exist in DB at all.")
+            
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Match not found"
