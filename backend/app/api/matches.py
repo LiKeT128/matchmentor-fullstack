@@ -1041,7 +1041,11 @@ async def select_hero(
         "strengths": [],
         "weaknesses": [],
         "power_spikes": [],
-        "mistakes": []
+        "mistakes": [],
+        
+        # Items
+        "items": selected_player.get("items", []),
+        "item_timings": selected_player.get("item_timings", [])
     }
     
     # Simple advice based on stats
