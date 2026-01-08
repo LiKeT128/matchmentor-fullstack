@@ -392,6 +392,54 @@ class ReplayParser:
                 log_memory_status()
                 
                 result = self._normalize_data(raw_data)
+
+                # =======================
+                # BUILD HEROES ARRAY (Explicit Override)
+                # =======================
+                # The user reported issues with hero mapping, so we are rebuilding 
+                # the heroes array here explicitly using raw_data to be 100% sure.
+                if "players" in raw_data:
+                    heroes_list = []
+                    logger.info("re-building heroes list explicitly...")
+                    
+                    for i, player in enumerate(raw_data.get("players", [])):
+                        # Default to 0 or 1 if missing, but try to find ID
+                        hero_id_raw = player.get("hero_id")
+                        hero_name_raw = player.get("hero_name")
+                        
+                        # Use ID if present
+                        if hero_id_raw is not None:
+                            hero_id = int(hero_id_raw)
+                            hero_name = get_hero_name(hero_id)
+                        # Fallback to name if ID missing (rare for legacy Clarity?)
+                        elif hero_name_raw:
+                            hero_name = hero_name_raw
+                        else:
+                            hero_name = "npc_dota_hero_unknown"
+                            
+                        # Normalize name
+                        if not hero_name.startswith("npc_dota_hero_") and not hero_name.startswith("unknown"):
+                             # If it looks like an ID (numeric string)
+                             if str(hero_name).isdigit():
+                                 hero_name = get_hero_name(int(hero_name))
+                        
+                        hero = {
+                            "player_id": i,
+                            "hero_name": hero_name,
+                            "team": "radiant" if i < 5 else "dire",
+                            "position": player.get("position", "unknown"),
+                            "steam_id": str(player.get("steam_id", player.get("account_id", ""))) if player.get("account_id") or player.get("steam_id") else None,
+                            "kills": int(player.get("kills", 0)),
+                            "deaths": int(player.get("deaths", 0)),
+                            "assists": int(player.get("assists", 0))
+                        }
+                        heroes_list.append(hero)
+                        logger.info(f"  Player {i}: {hero_name} (ID: {hero_id_raw})")
+                    
+                    # Override the heroes in result
+                    result["heroes"] = heroes_list
+                    logger.info(f"✓ Built heroes array with {len(heroes_list)} heroes")
+
                 
                 # Check if heroes were extracted successfully
                 if not result.get('heroes') or len(result['heroes']) == 0:

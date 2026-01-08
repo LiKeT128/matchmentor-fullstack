@@ -498,8 +498,24 @@ async def get_match(
             parsed_data['heroes'] = heroes
             logger.info(f"✓ Rebuilt {len(heroes)} heroes")
         
-        logger.info(f"Final heroes count: {len(parsed_data.get('heroes', []))}")
-        
+        # Ensure we have the list for the response
+        heroes_list = parsed_data.get('heroes', [])
+        logger.info(f"✓ GET Match {match_id}: {len(heroes_list)} heroes")
+
+        # Map to schema if needed (schema expects HeroInMatch)
+        # parsed_data heroes don't have hero_display_name usually, schema defines it.
+        # We might need to populate it.
+        mapped_heroes = []
+        for h in heroes_list:
+            # Create a copy or new dict to match schema
+            h_schema = h.copy()
+            if "hero_display_name" not in h_schema:
+                 # Simple formatted name for now
+                 name = h_schema.get("hero_name", "unknown")
+                 h_schema["hero_display_name"] = name.replace("npc_dota_hero_", "").replace("_", " ").title()
+            mapped_heroes.append(h_schema)
+
+
         response = MatchDetailResponse(
             id=match.id,
             match_id=match.match_id,
@@ -519,8 +535,10 @@ async def get_match(
             created_at=match.created_at,
             selected_hero_name=match.selected_hero_name,
             selected_at=match.selected_at,
-            steam_id=match.steam_id
+            steam_id=match.steam_id,
+            heroes_in_match=mapped_heroes # Explicit return
         )
+
         
         logger.info(f"✓ Returning match response")
         return response

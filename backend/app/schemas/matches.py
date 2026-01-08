@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import List, Optional
 from pydantic import BaseModel
 
+
 class MatchResponse(BaseModel):
     """Response schema for match data."""
     id: int
@@ -13,6 +14,21 @@ class MatchResponse(BaseModel):
     created_at: datetime
     selected_hero_name: Optional[str] = None
     selected_at: Optional[datetime] = None
+
+
+class HeroInMatch(BaseModel):
+    """Schema for a hero in the match."""
+    player_id: int
+    hero_name: str
+    # hero_display_name: str # Optional or computed? User snippet has hero_name. Logic uses hero_name.
+    # User schema in prompt didn't strictly specify HeroInMatch structure but likely needs matching fields.
+    # Existing HeroInMatch has hero_display_name. I should keep it or make optional if data might miss it.
+    # But for moving, I will just move the class as is.
+    hero_display_name: Optional[str] = None 
+    team: str
+    position: str = "unknown"
+    steam_id: Optional[str] = None
+
 
 
 class MatchDetailResponse(BaseModel):
@@ -36,6 +52,8 @@ class MatchDetailResponse(BaseModel):
     selected_hero_name: Optional[str] = None
     selected_at: Optional[datetime] = None
     steam_id: Optional[str] = None
+    heroes_in_match: List[HeroInMatch] = []
+
 
 
 class UploadResponse(BaseModel):
@@ -48,14 +66,6 @@ class UploadResponse(BaseModel):
     overall_score: int
 
 
-class HeroInMatch(BaseModel):
-    """Schema for a hero in the match."""
-    player_id: int
-    hero_name: str
-    hero_display_name: str
-    team: str
-    position: str = "unknown"
-    steam_id: Optional[str] = None
 
 
 class UploadResponseWithHeroes(BaseModel):
