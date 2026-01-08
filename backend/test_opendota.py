@@ -21,4 +21,4 @@ async def test_opendota(match_id):
                 print("No 'players' key in response")
 
 if __name__ == "__main__":
-    asyncio.run(test_opendota("8636759340"))
+    asyncio.run(test_opendota("8627882837"))

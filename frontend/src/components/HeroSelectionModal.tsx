@@ -8,6 +8,7 @@ interface Hero {
     hero_display_name: string;
     team: "radiant" | "dire";
     position: string;
+    player_name?: string;
     steam_id?: string;
 }
 
@@ -25,7 +26,7 @@ export const HeroSelectionModal: React.FC<HeroSelectionModalProps> = ({
     loading = false
 }) => {
     const [isSubmitting, setIsSubmitting] = useState(false);
-    
+
     // Sort heroes to ensure Radiant/Dire split is correct even if api returns unsorted
     const radiantHeroes = heroes.filter(h => h.team === "radiant");
     const direHeroes = heroes.filter(h => h.team === "dire");
@@ -50,7 +51,7 @@ export const HeroSelectionModal: React.FC<HeroSelectionModalProps> = ({
             <div className={styles.modal}>
                 <h2>Which hero did you play?</h2>
                 <p className={styles.subtitle}>Select your hero to see detailed statistics</p>
-                
+
                 <div className={styles.teamsContainer}>
                     {/* RADIANT TEAM */}
                     <div className={styles.teamColumn}>
@@ -77,7 +78,7 @@ export const HeroSelectionModal: React.FC<HeroSelectionModalProps> = ({
                                             {hero.hero_display_name}
                                         </span>
                                         <span className={styles.position}>
-                                            {hero.position}
+                                            {hero['player_name'] ? `${hero['player_name']} (${hero.position})` : hero.position}
                                         </span>
                                     </div>
                                 </button>

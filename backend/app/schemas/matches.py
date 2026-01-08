@@ -27,6 +27,7 @@ class HeroInMatch(BaseModel):
     hero_display_name: Optional[str] = None 
     team: str
     position: str = "unknown"
+    player_name: Optional[str] = None
     steam_id: Optional[str] = None
 
 

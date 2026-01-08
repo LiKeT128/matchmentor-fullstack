@@ -148,6 +148,7 @@ async def lookup_match(
                 "team": "radiant" if idx < 5 else "dire",
                 "position": "unknown",
                 "steam_id": str(player.get('account_id', '')) or None,
+                "player_name": player.get('personaname') # Include player_name from OpenDota
             })
         
         logger.info(f"Extracted {len(heroes)} heroes from OpenDota")
@@ -270,12 +271,16 @@ async def upload_match(
                                     position_name = "Off Lane" if is_radiant else "Safe Lane"
                                 elif lane == 4 or lane == 5:
                                     position_name = "Jungle" if lane == 4 else "Roaming"
-                                
+                            
+                            # Extract Player Name (persona)
+                            p_name = p.get("personaname")
+                            
                             hero_entry = {
                                 "player_id": idx,
                                 "hero_name": h_name,
                                 "team": "radiant" if idx < 5 else "dire",
                                 "position": position_name, 
+                                "player_name": p_name,
                                 "steam_id": str(p.get("account_id") or "") or None
                             }
                             fallback_heroes.append(hero_entry)
@@ -785,10 +790,23 @@ async def select_hero(
     
     for player in players:
         player_hero = player.get("hero_name", player.get("hero", ""))
-        if player_hero == request.hero_name:
+        # Normalize to short names for robust comparison
+        # Frontend sends short name (e.g. "pudge"), DB might have "npc_dota_hero_pudge"
+        p_short = player_hero.replace("npc_dota_hero_", "")
+        r_short = request.hero_name.replace("npc_dota_hero_", "")
+        
+        if p_short == r_short:
             selected_player = player
             break
     
+    if not selected_player:
+        # Try finding by display name or loose match as fallback
+        for player in players:
+             player_hero = player.get("hero_name", player.get("hero", ""))
+             if request.hero_name.lower() in player_hero.lower():
+                 selected_player = player
+                 break
+                 
     if not selected_player:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
