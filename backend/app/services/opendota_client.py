@@ -256,8 +256,12 @@ class OpenDotaClient:
             is_radiant = player.get("isRadiant", idx < 5)
             team = "radiant" if is_radiant else "dire"
             
-            # Determine position: Prefer 'lane' (actual gameplay) over 'slot' (lobby order)
+            # Position Detection Strategy:
+            # 1. Use 'lane' and 'lane_role' if available from OpenDota (rare in basic lookups)
+            # 2. Fallback: Dynamic GPM-based ranking within team to solve "Lich Mid" issues
+            
             lane = player.get("lane")
+            lane_role = player.get("lane_role")
             position = "unknown"
             
             if lane:
@@ -272,23 +276,44 @@ class OpenDotaClient:
                 elif lane == 5:
                     position = "Roaming"
             
-            # Improved Fallback: Map slots to standard roles if lane info is missing
+            # Map lane_role if lane didn't give a specific enough role
+            if position in ("unknown", "Jungle", "Roaming") and lane_role:
+                role_map = {1: "Safe Lane", 2: "Mid Lane", 3: "Off Lane", 4: "Support"}
+                position = role_map.get(lane_role, position)
+
+            # 2. Dynamic Performance Fallback (Crucial for the "Which hero did you play?" modal)
+            if position == "unknown":
+                # Find all players on the same team
+                team_players = [p for i, p in enumerate(players) if p and p.get("isRadiant", i < 5) == is_radiant]
+                # Sort by Last Hits (primary) and GPM (secondary) descending
+                # This accurately separates Pos 1 (highest LH) from Pos 2 (Mid) and Supports
+                sorted_by_perf = sorted(
+                    team_players, 
+                    key=lambda x: (x.get("last_hits", 0), x.get("gold_per_min", 0)), 
+                    reverse=True
+                )
+                
+                # Find this player's rank in the team
+                try:
+                    rank = sorted_by_perf.index(player)
+                    rank_map = {
+                        0: "Safe Lane",    # Pos 1
+                        1: "Mid Lane",     # Pos 2
+                        2: "Off Lane",     # Pos 3
+                        3: "Soft Support", # Pos 4
+                        4: "Hard Support"  # Pos 5
+                    }
+                    position = rank_map.get(rank, f"Pos {rank + 1}")
+                except (ValueError, IndexError):
+                    pass
+
+            # 3. Final Fallback to Slot (Lobby Order) - only if GPM calculation failed
             if position == "unknown":
                 player_slot = player.get("player_slot")
                 if player_slot is not None:
-                    # Normalize slot (0-4 for Radiant, 128-132 for Dire)
-                    # Standard assumption: 1=Safe, 2=Mid, 3=Off, 4=Soft Supp, 5=Hard Supp
-                    # Map 0->Safe, 1->Mid, 2->Off, 3->Soft, 4->Hard
                     slot_idx = player_slot if player_slot < 128 else player_slot - 128
-                    
-                    role_map = {
-                        0: "Safe Lane",     # Pos 1
-                        1: "Mid Lane",      # Pos 2
-                        2: "Off Lane",      # Pos 3
-                        3: "Soft Support",  # Pos 4
-                        4: "Hard Support"   # Pos 5
-                    }
-                    position = role_map.get(slot_idx, f"Slot {slot_idx + 1}")
+                    fallback_map = {0: "Safe Lane", 1: "Mid Lane", 2: "Off Lane", 3: "Soft Support", 4: "Hard Support"}
+                    position = fallback_map.get(slot_idx, "unknown")
             
             heroes.append({
                 "player_id": idx,
