@@ -116,8 +116,9 @@ class TestMatchesEndpoints:
         assert "parsed_data" in data
         assert "heroes" in data["parsed_data"]
         assert len(data["parsed_data"]["heroes"]) == 2
-        assert "npc_dota_hero_juggernaut" in data["parsed_data"]["heroes"]
-        assert "npc_dota_hero_cm" in data["parsed_data"]["heroes"]
+        heroes = data["parsed_data"]["heroes"]
+        assert any(h["hero_name"] == "npc_dota_hero_juggernaut" for h in heroes)
+        assert any(h["hero_name"] == "npc_dota_hero_cm" for h in heroes)
 
 
 class TestMatchFilters:

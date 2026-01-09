@@ -79,6 +79,7 @@ class UploadResponseWithHeroes(BaseModel):
 
 class SelectHeroRequest(BaseModel):
     """Request body for hero selection."""
+    match_id: Optional[str] = None  # Optional: can also come from path param
     hero_name: str
 
 

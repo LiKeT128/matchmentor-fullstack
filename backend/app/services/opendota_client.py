@@ -248,25 +248,38 @@ class OpenDotaClient:
             is_radiant = player.get("isRadiant", idx < 5)
             team = "radiant" if is_radiant else "dire"
             
-            # Determine position from lane
-            lane = player.get("lane")
+            # Determine position from player_slot (more reliable than lane)
+            # player_slot: 0-4 = Radiant (pos 1-5), 128-132 = Dire (pos 1-5)
+            player_slot = player.get("player_slot")
             position = "unknown"
-            if lane:
-                if lane == 1:  # Bot
-                    position = "Safe Lane" if is_radiant else "Off Lane"
-                elif lane == 2:  # Mid
-                    position = "Mid Lane"
-                elif lane == 3:  # Top
-                    position = "Off Lane" if is_radiant else "Safe Lane"
-                elif lane == 4:
-                    position = "Jungle"
-                elif lane == 5:
-                    position = "Roaming"
+            
+            if player_slot is not None:
+                if 0 <= player_slot <= 4:
+                    # Radiant: slot 0 = pos 1, slot 1 = pos 2, etc.
+                    position = str(player_slot + 1)
+                elif 128 <= player_slot <= 132:
+                    # Dire: slot 128 = pos 1, slot 129 = pos 2, etc.
+                    position = str(player_slot - 127)
+            
+            # Fallback to lane-based position if player_slot unavailable
+            if position == "unknown":
+                lane = player.get("lane")
+                if lane:
+                    if lane == 1:  # Bot
+                        position = "Safe Lane" if is_radiant else "Off Lane"
+                    elif lane == 2:  # Mid
+                        position = "Mid Lane"
+                    elif lane == 3:  # Top
+                        position = "Off Lane" if is_radiant else "Safe Lane"
+                    elif lane == 4:
+                        position = "Jungle"
+                    elif lane == 5:
+                        position = "Roaming"
             
             heroes.append({
                 "player_id": idx,
                 "hero_id": hero_id,
-                "hero_name": image_name,
+                "hero_name": f"npc_dota_hero_{image_name}",  # ADDED PREFIX as requested
                 "hero_display_name": hero_display,
                 "team": team,
                 "position": position,

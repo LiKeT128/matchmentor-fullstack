@@ -1006,6 +1006,22 @@ def _extract_heroes_from_match(parsed_data: dict) -> list[dict]:
     
     return heroes
 
+@router.post("/{match_id}/select-hero", response_model=SelectHeroResponse)
+def select_hero_path(
+    match_id: str,
+    request: SelectHeroRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Selects a hero for a specific match using path parameter.
+    This is the preferred endpoint for frontend (path: /api/matches/{match_id}/select-hero).
+    """
+    # Forward to main logic with match_id from path
+    request.match_id = match_id
+    return _select_hero_logic(request, current_user, db)
+
+
 @router.post("/select-hero", response_model=SelectHeroResponse)
 def select_hero(
     request: SelectHeroRequest,
@@ -1013,9 +1029,18 @@ def select_hero(
     db: Session = Depends(get_db)
 ):
     """
-    Selects a hero for a specific match and triggers analysis.
-    Updates the match record with the selected hero and initial metrics.
+    Selects a hero for a specific match and triggers analysis (body param version).
+    For path param version, use POST /{match_id}/select-hero instead.
     """
+    return _select_hero_logic(request, current_user, db)
+
+
+def _select_hero_logic(
+    request: SelectHeroRequest,
+    current_user: User,
+    db: Session
+):
+    """Shared logic for hero selection."""
     match_id = request.match_id
     logger.info(f"SelectHero: Entering. match_id='{match_id}', user_id={current_user.id}")
 
@@ -1094,15 +1119,19 @@ def select_hero(
             pid = matched_hero_entry.get("player_id")
             logger.info(f"Found matched hero entry. Player ID: {pid}")
             
-            # 2. Get full stats from 'players' list using player_id
+            # IMPORTANT: matched_hero_entry from 'heroes' already contains all metrics
+            # (kills, deaths, gold_per_min, etc.) from our _normalize_match_data
+            selected_player = matched_hero_entry
+            
+            # Optionally merge any missing fields from raw players array
             if players and pid is not None and 0 <= pid < len(players):
-                selected_player = players[pid]
-                # Ensure hero name is synced in the returned object
-                selected_player["hero_name"] = matched_hero_entry.get("hero_name")
-                selected_player["hero_display_name"] = matched_hero_entry.get("hero_display_name")
-            else:
-                 # Fallback if players list is empty/mismatched but we have hero entry
-                 selected_player = matched_hero_entry
+                raw_player = players[pid]
+                # Only add fields that are missing from matched_hero_entry
+                for key, value in raw_player.items():
+                    if key not in selected_player or selected_player.get(key) in (None, 0, ""):
+                        selected_player[key] = value
+            
+            logger.info(f"Selected player data: gpm={selected_player.get('gold_per_min')}, kills={selected_player.get('kills')}")
                  
         else:
             # Fallback: legacy search in 'players' list directly
