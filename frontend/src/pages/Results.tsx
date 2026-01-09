@@ -231,20 +231,7 @@ export const Results = () => {
                         <h3 className="text-xl font-bold text-white mb-6">Select Hero to Analyze</h3>
                         <div className="grid grid-cols-2 sm:grid-cols-5 md:grid-cols-10 gap-3">
                             {allHeroes.map(hero => {
-                                const heroShortName = hero.replace('npc_dota_hero_', '')
-                                    // Manual frontend fixes for some edge cases if needed, but backend handles most
-                                    .replace('furion', 'furion')
-                                    .replace('zuus', 'zeus')
-                                    .replace('necrolyte', 'necrophos')
-                                    .replace('windrunner', 'windranger')
-                                    .replace('obsidian_destroyer', 'outworld_destroyer')
-                                    .replace('shredder', 'timbersaw')
-                                    .replace('rattletrap', 'clockwerk')
-                                    .replace('doom_bringer', 'doom')
-                                    .replace('nevermore', 'shadow_fiend')
-                                    .replace('skeleton_king', 'wraith_king')
-                                    .replace('magnataur', 'magnus')
-                                    .replace('wisp', 'io');
+                                const heroShortName = hero.replace('npc_dota_hero_', '');
 
                                 const imageUrl = `https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/heroes/${heroShortName}.png`;
 

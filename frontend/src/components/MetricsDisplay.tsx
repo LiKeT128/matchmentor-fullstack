@@ -23,6 +23,7 @@ export const MetricsDisplay = ({ metrics }: MetricsDisplayProps) => {
                 { key: 'gpm', label: 'GPM' },
                 { key: 'xpm', label: 'XPM' },
                 { key: 'last_hits', label: 'Last Hits' },
+                { key: 'lane_efficiency', label: 'Lane Eff. (%)' },
             ],
         },
         {
@@ -36,11 +37,12 @@ export const MetricsDisplay = ({ metrics }: MetricsDisplayProps) => {
                 { key: 'kills', label: 'Kills' },
                 { key: 'deaths', label: 'Deaths' },
                 { key: 'assists', label: 'Assists' },
-                { key: 'damage', label: 'Hero Damage' },
+                { key: 'hero_damage', label: 'Hero Damage' },
+                { key: 'tower_damage', label: 'Tower Damage' },
             ],
         },
         {
-            title: 'Positioning',
+            title: 'Impact',
             icon: (
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
@@ -48,8 +50,10 @@ export const MetricsDisplay = ({ metrics }: MetricsDisplayProps) => {
                 </svg>
             ),
             metrics: [
-                { key: 'position_safety', label: 'Position Safety' },
                 { key: 'teamfight_participation', label: 'Teamfight %' },
+                { key: 'stuns', label: 'Stun Duration (s)' },
+                { key: 'vision_score', label: 'Vision Score' },
+                { key: 'position_safety', label: 'Survival Rating' },
             ],
         },
     ];

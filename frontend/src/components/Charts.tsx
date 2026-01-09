@@ -107,7 +107,7 @@ export const Charts = ({ metrics }: ChartsProps) => {
                     <RadarChart data={radarData}>
                         <PolarGrid stroke="#374151" />
                         <PolarAngleAxis dataKey="subject" tick={{ fill: '#9ca3af', fontSize: 12 }} />
-                        <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fill: '#6b7280' }} />
+                        <PolarRadiusAxis angle={90} domain={[0, 100]} tick={false} axisLine={false} />
                         <Radar
                             name="Performance"
                             dataKey="value"

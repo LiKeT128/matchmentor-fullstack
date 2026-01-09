@@ -750,10 +750,36 @@ async def get_match(
             # Create a copy or new dict to match schema
             h_schema = h.copy() if isinstance(h, dict) else {"hero_name": str(h)}
             
-            # CRITICAL: Strip 'npc_dota_hero_' prefix for OpenDota images
+            # CRITICAL: Strip 'npc_dota_hero_' prefix, then REPAIR stale names, then Re-Prefix
             raw_name = h_schema.get("hero_name", "unknown")
             short_name = raw_name.replace("npc_dota_hero_", "") if raw_name else "unknown"
-            h_schema["hero_name"] = short_name
+            
+            # Map stale/display names (from old DB cache) back to internal Valve names
+            corrections = {
+                "zeus": "zuus",
+                "magnus": "magnataur",
+                "necrophos": "necrolyte",
+                "windranger": "windrunner",
+                "underlord": "abyssal_underlord",
+                "io": "wisp",
+                "wraith_king": "skeleton_king",
+                "clockwerk": "rattletrap",
+                "outworld_destroyer": "obsidian_destroyer",
+                "timbersaw": "shredder",
+                "nature's_prophet": "furion", "natures_prophet": "furion",
+                "treant_protector": "treant",
+                "centaur_warrunner": "centaur",
+                "lifestealer": "life_stealer",
+                "queen_of_pain": "queenofpain",
+                "vengeful_spirit": "vengefulspirit",
+                "doom": "doom_bringer",
+                "shadow_fiend": "nevermore"
+            }
+            if short_name.lower() in corrections:
+                short_name = corrections[short_name.lower()]
+                
+            # Re-apply prefix for frontend consistency
+            h_schema["hero_name"] = f"npc_dota_hero_{short_name}"
             
             if "hero_display_name" not in h_schema:
                  h_schema["hero_display_name"] = short_name.replace("_", " ").title()
@@ -1226,12 +1252,16 @@ def _select_hero_logic(
             "tower_damage": selected_player.get("tower_damage", 0),
             "hero_healing": selected_player.get("hero_healing", 0),
             
-            # Advanced (default to 0 if not parsed)
+            # Advanced (Calculated)
             "damage_ratio": 0.0,
             "gold_efficiency": 0.0,
-            "lane_efficiency": 0.0,
-            "vision_score": 0.0,
-            "camp_stacking": 0.0,
+            "lane_efficiency": selected_player.get("lane_efficiency_pct", round(last_hits / (match.duration_minutes if match.duration_minutes > 0 else 30) * 10, 1)), 
+            
+            # New Metrics requested by user
+            "vision_score": selected_player.get("vision_score") or (selected_player.get("obs_placed", 0) * 1.5 + selected_player.get("sen_placed", 0) * 1.5),
+            "stuns": round(selected_player.get("stuns", 0), 1),
+            "position_safety": max(0, 100 - (deaths * 5)), # Heuristic Survival Rating
+            "camp_stacking": selected_player.get("camps_stacked", 0),
             
             # Lists
             "strengths": [],
@@ -1261,6 +1291,12 @@ def _select_hero_logic(
              })
         elif is_core and gpm > 600:
              metrics["strengths"].append("Excellent Farming speed")
+             advice.append({
+                 "type": "farming",
+                 "severity": "low",
+                 "message": "Excellent farming efficiency!",
+                 "suggestion": "Maintain this GPM to secure late game dominance."
+             })
              
         # 2. Survival Analysis
         if deaths > 8:
@@ -1283,6 +1319,12 @@ def _select_hero_logic(
             })
         elif tf_participation > 60.0:
             metrics["strengths"].append("High teamfight participation")
+            advice.append({
+                 "type": "fighting",
+                 "severity": "low",
+                 "message": "You are a key playmaker.",
+                 "suggestion": "Your high participation is winning fights. Keep leading the charge."
+             })
              
         # 4. Laning Analysis (Last Hits at 10m would be better, but using total last hits as proxy for now)
         if last_hits < 50 and match.duration_minutes > 20 and is_core:
