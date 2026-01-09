@@ -784,11 +784,21 @@ async def get_match(
             if "hero_display_name" not in h_schema:
                  h_schema["hero_display_name"] = short_name.replace("_", " ").title()
             
-            # Ensure required fields
+            # Ensure required fields and fix Roles
             if "player_id" not in h_schema:
                 h_schema["player_id"] = heroes_list.index(h)
             if "team" not in h_schema:
                 h_schema["team"] = "radiant" if h_schema.get("player_id", 0) < 5 else "dire"
+            
+            # Remap numeric positions to readable roles
+            pos = str(h_schema.get("position", "unknown"))
+            pos_map = {
+                "1": "Safe Lane", "2": "Mid Lane", "3": "Off Lane", 
+                "4": "Soft Support", "5": "Hard Support"
+            }
+            if pos in pos_map:
+                h_schema["position"] = pos_map[pos]
+                
             if "position" not in h_schema:
                 h_schema["position"] = "unknown"
                 
@@ -1284,55 +1294,55 @@ def _select_hero_logic(
         if is_core and gpm < 400:
              metrics["weaknesses"].append("Low GPM for core")
              advice.append({
-                 "type": "farming",
-                 "severity": "high",
-                 "message": f"Your GPM ({gpm}) is very low for a core role.",
-                 "suggestion": "Focus on last hitting in lane and taking jungle camps between waves."
+                 "category": "farming",
+                 "priority": "high",
+                 "title": f"Low GPM ({gpm})",
+                 "description": "Your GPM is very low for a core role. Focus on last hitting and farming patterns."
              })
         elif is_core and gpm > 600:
              metrics["strengths"].append("Excellent Farming speed")
              advice.append({
-                 "type": "farming",
-                 "severity": "low",
-                 "message": "Excellent farming efficiency!",
-                 "suggestion": "Maintain this GPM to secure late game dominance."
+                 "category": "farming",
+                 "priority": "low",
+                 "title": "Excellent Farming Efficiency",
+                 "description": "Your GPM is high. Maintain this farm rate to secure late game dominance."
              })
              
         # 2. Survival Analysis
         if deaths > 8:
             metrics["weaknesses"].append("High death count")
             advice.append({
-                "type": "survival",
-                "severity": "critical",
-                "message": f"You died {deaths} times. Each death gives gold to enemies.",
-                "suggestion": "Play safer when enemies are missing. Buy defensive items like BKB or Linkens."
+                "category": "survival",
+                "priority": "high",
+                "title": f"High Death Count ({deaths})",
+                "description": "Each death gives gold to enemies and reduces your map presence. Play safer when enemies are missing."
             })
             
         # 3. Teamfight Analysis
         if tf_participation < 30.0:
             metrics["weaknesses"].append("Low teamfight impact")
             advice.append({
-                "type": "fighting",
-                "severity": "medium",
-                "message": f"You participated in only {tf_participation}% of kills.",
-                "suggestion": "Carry a TP scroll and join fights. Don't AFK farm when your team needs you."
+                "category": "fighting",
+                "priority": "medium",
+                "title": f"Low Teamfight ({tf_participation}%)",
+                "description": "Carry a TP scroll and join fights. Don't AFK farm when your team needs you."
             })
         elif tf_participation > 60.0:
             metrics["strengths"].append("High teamfight participation")
             advice.append({
-                 "type": "fighting",
-                 "severity": "low",
-                 "message": "You are a key playmaker.",
-                 "suggestion": "Your high participation is winning fights. Keep leading the charge."
+                 "category": "fighting",
+                 "priority": "low",
+                 "title": "Key Playmaker",
+                 "description": "Your high participation is winning fights. Keep leading the charge."
              })
              
         # 4. Laning Analysis (Last Hits at 10m would be better, but using total last hits as proxy for now)
         if last_hits < 50 and match.duration_minutes > 20 and is_core:
              advice.append({
-                 "type": "laning",
-                 "severity": "high",
-                 "message": "Very low CS count.",
-                 "suggestion": "Practice last hitting in demo mode. Aim for 50 CS by 10 minutes."
+                 "category": "laning",
+                 "priority": "high",
+                 "title": "Low CS Count",
+                 "description": "Very low last hits. Practice last hitting in demo mode. Aim for 50 CS by 10 minutes."
              })
              
         if kda < 2.0:
@@ -1379,9 +1389,15 @@ def _select_hero_logic(
         # Merge analysis metrics with extracted metrics (preserve our TF% and other raw data)
         full_metrics = analysis["metrics"].copy()
         
-        # Ensure our calculated TF% is preserved if analyzer didn't calculate it better
-        if "teamfight_participation" in metrics:
-            full_metrics["teamfight_participation"] = metrics["teamfight_participation"]
+        # Ensure our calculated metrics are preserved
+        keys_to_preserve = [
+            "teamfight_participation", "lane_efficiency", "vision_score", 
+            "stuns", "position_safety", "camp_stacking", 
+            "hero_damage", "tower_damage", "hero_healing"
+        ]
+        for k in keys_to_preserve:
+            if k in metrics:
+                full_metrics[k] = metrics[k]
             
         full_metrics.update({
             "overall_score": analysis["overall_score"],
