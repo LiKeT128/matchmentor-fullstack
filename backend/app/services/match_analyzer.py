@@ -432,13 +432,6 @@ class MatchAnalyzer:
     ) -> List[Dict[str, Any]]:
         """
         Generate coaching advice based on deterministic rules.
-        
-        Args:
-            metrics: Calculated performance metrics.
-            benchmarks: Benchmark comparison data.
-            
-        Returns:
-            List of advice items with type, severity, message, suggestion.
         """
         advice = []
         
@@ -446,30 +439,30 @@ class MatchAnalyzer:
         gpm_ratio = benchmarks.get("gpm_ratio", 1.0)
         if gpm_ratio < 0.8:
             advice.append({
-                "type": "farming",
-                "severity": "warning",
-                "message": f"Your GPM {metrics.get('gpm', 0)} is {int((1 - gpm_ratio) * 100)}% below average",
-                "suggestion": "Focus on efficient farming. Reduce time traveling, more time hitting creeps."
+                "category": "farming",
+                "priority": "medium",
+                "title": f"Low GPM ({metrics.get('gpm', 0)})",
+                "description": "Your GPM is below average. Focus on efficient farming and reducing time traversing the map."
             })
         
         # ===== DEATHS ADVICE =====
         deaths_ratio = benchmarks.get("deaths_ratio", 1.0)
         if deaths_ratio > 1.5:
             advice.append({
-                "type": "positioning",
-                "severity": "critical",
-                "message": f"You die {metrics.get('deaths', 0)} times vs average {benchmarks.get('deaths_benchmark', 5)}",
-                "suggestion": "Work on positioning. Stay further back in fights. Watch pro replays."
+                "category": "survival",
+                "priority": "high",
+                "title": f"High Death Count ({metrics.get('deaths', 0)})",
+                "description": "You are dying too often. Work on positioning and stay further back in fights."
             })
         
         # ===== POSITIONING ADVICE =====
         position_risk = metrics.get("position_safety_score", 0.5)
         if position_risk < 0.3:
             advice.append({
-                "type": "positioning",
-                "severity": "warning",
-                "message": "You spend too much time in dangerous positions",
-                "suggestion": "Position safer. Use fog of war. Play further from enemies."
+                "category": "survival",
+                "priority": "medium",
+                "title": "Risky Positioning",
+                "description": "You spend too much time in dangerous farm zones. Use fog of war effectively."
             })
         
         # ===== ITEM TIMING ADVICE =====
@@ -477,55 +470,55 @@ class MatchAnalyzer:
         pro_blink = benchmark_service.get_pro_item_timing("blink") or 780
         if blink_timing > 0 and blink_timing > pro_blink + 300:
             advice.append({
-                "type": "itemization",
-                "severity": "warning",
-                "message": f"Blink timing {blink_timing // 60}:{blink_timing % 60:02d} vs pro avg {pro_blink // 60}:{pro_blink % 60:02d}",
-                "suggestion": "Speed up farming. Practice item builds in practice lobby."
+                "category": "timing",
+                "priority": "medium",
+                "title": "Late Blink Dagger",
+                "description": f"Timing {blink_timing // 60}:{blink_timing % 60:02d} is slow compared to pro avg. Focus on farming acceleration."
             })
         
         # ===== WARDING ADVICE =====
         wards_placed = metrics.get("wards_placed", 0)
         if wards_placed < 5:
             advice.append({
-                "type": "warding",
-                "severity": "info",
-                "message": f"You placed only {wards_placed} wards this game",
-                "suggestion": "Even as a core, consider carrying a ward. Vision wins games."
+                "category": "vision",
+                "priority": "low",
+                "title": "Low Vision Contribution",
+                "description": "Consider buying and placing more wards to help your team control the map."
             })
         
         # ===== LANE PHASE ADVICE =====
         lh_at_10 = metrics.get("lh_at_10", 0)
         if lh_at_10 < 50:
             advice.append({
-                "type": "laning",
-                "severity": "warning",
-                "message": f"Only {lh_at_10} last hits at 10 min is below average",
-                "suggestion": "Practice last hitting. Aim for 60+ at 10 minutes for cores."
+                "category": "laning",
+                "priority": "high",
+                "title": "Weak Laning Phase",
+                "description": f"Only {lh_at_10} Last Hits at 10m. Aim for 50-60+."
             })
         
         # ===== KDA ADVICE =====
         kda = metrics.get("kda", 0)
         if kda < 2.0:
             advice.append({
-                "type": "combat",
-                "severity": "warning",
-                "message": f"KDA of {kda} indicates too many deaths relative to kills",
-                "suggestion": "Focus on surviving fights. Get assists if you can't get kills safely."
+                "category": "fighting",
+                "priority": "medium",
+                "title": "Low KDA",
+                "description": "Your kill contribution is low relative to deaths. Focus on survival."
             })
         
         # ===== TEAMFIGHT ADVICE =====
         tf_participation = metrics.get("teamfight_participation", 0)
         if tf_participation < 0.4:
             advice.append({
-                "type": "teamplay",
-                "severity": "info",
-                "message": f"Only {int(tf_participation * 100)}% teamfight participation",
-                "suggestion": "Join more fights with your team. Map awareness is key."
+                "category": "fighting",
+                "priority": "low",
+                "title": "Low Teamfight Participation",
+                "description": f"Only {int(tf_participation * 100)}% participation. Join your team for objectives."
             })
         
         # Sort by severity
-        severity_order = {"critical": 0, "warning": 1, "info": 2}
-        advice.sort(key=lambda x: severity_order.get(x.get("severity", "info"), 2))
+        priority_order = {"high": 0, "medium": 1, "low": 2}
+        advice.sort(key=lambda x: priority_order.get(x.get("priority", "low"), 2))
         
         return advice
     

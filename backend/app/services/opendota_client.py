@@ -278,6 +278,15 @@ class OpenDotaClient:
                 "hero_healing": player.get("hero_healing", 0),
                 "level": player.get("level", 1),
                 "net_worth": player.get("net_worth", 0),
+                
+                # Extended Metrics
+                "obs_placed": player.get("obs_placed", 0),
+                "sen_placed": player.get("sen_placed", 0),
+                "stuns": player.get("stuns", 0),
+                "camps_stacked": player.get("camps_stacked", 0),
+                "lane_efficiency_pct": player.get("lane_efficiency_pct", 0),
+                "purchase_ward_observer": player.get("purchase_ward_observer", 0),
+                "purchase_ward_sentry": player.get("purchase_ward_sentry", 0),
             })
         
         # Check for unknown heroes

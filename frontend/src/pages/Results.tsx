@@ -21,6 +21,7 @@ interface Match {
     parsed_data?: {
         heroes?: (string | { hero_name: string })[] | null;
     };
+    mistakes?: string[];
 }
 
 interface Advice {
@@ -288,6 +289,25 @@ export const Results = () => {
 
                 {/* Charts */}
                 <Charts metrics={match.metrics} />
+
+                {/* Mistakes Section */}
+                {match.mistakes && match.mistakes.length > 0 && (
+                    <div className="mb-8">
+                        <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                            <span className="text-red-400">⚠️</span> Key Mistakes
+                        </h3>
+                        <div className="bg-red-900/10 border border-red-500/20 rounded-xl p-6">
+                            <ul className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                {match.mistakes.map((mistake, idx) => (
+                                    <li key={idx} className="flex items-start gap-2 text-gray-300">
+                                        <span className="text-red-500 mt-1.5">•</span>
+                                        <span>{mistake}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    </div>
+                )}
 
                 {/* Advice List */}
                 <AdviceList advice={match.advice} />
