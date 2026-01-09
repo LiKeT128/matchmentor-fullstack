@@ -286,7 +286,8 @@ async def lookup_match(
         new_match = Match(
             match_id=match_id,
             player_id=current_user.id,
-            hero_name="pending",  # Will be set on hero selection
+            steam_id=steam_id,
+            hero_name="pending",
             duration_minutes=match_data.get("duration_minutes", 0),
             result=result,
             parsed_data={
@@ -298,7 +299,7 @@ async def lookup_match(
                 "game_mode": match_data.get("game_mode"),
                 "picks_bans": match_data.get("picks_bans", []),
             },
-            metrics={},
+            metrics={},  # Initially empty, filled on hero selection
             advice=[],
             source="opendota",
             created_at=datetime.utcnow()
@@ -1409,8 +1410,14 @@ def _select_hero_logic(
         })
         
         # Update match with new metrics
+        from sqlalchemy.orm.attributes import flag_modified
         match.metrics = full_metrics
-        match.advice = analysis["advice"] + advice  # Merge our ruled-based advice with analyzer advice
+        match.advice = analysis["advice"] + advice
+        
+        # Explicitly flag JSON fields as modified for SQLAlchemy
+        flag_modified(match, "metrics")
+        flag_modified(match, "advice")
+        flag_modified(match, "parsed_data")
         
         db.commit()
         db.refresh(match)

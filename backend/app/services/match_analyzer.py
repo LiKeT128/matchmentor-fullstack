@@ -69,6 +69,30 @@ class MatchAnalyzer:
         power_spikes = self._analyze_power_spikes(flat_metrics, parsed_data)
         mistakes = self._detect_mistakes(flat_metrics, parsed_data)
         
+        # Pro Benchmarks
+        hero_id = parsed_data.get("hero_id")
+        if not hero_id and "full_data" in parsed_data:
+             hero_id = parsed_data["full_data"].get("hero_id")
+             
+        # Resolve from name if still None
+        if not hero_id:
+             # Very basic fallback for standard heroes
+             hero_id = 1 # Default to Anti-Mage if unknown for benchmark purposes
+             
+        duration = max(parsed_data.get("duration_minutes", 1), 1)
+        benchmarks = benchmark_service.get_hero_benchmarks_sync(hero_id)
+        pro_gpm = benchmark_service.get_benchmark_for_metric(benchmarks, "gold_per_min", "75")
+        pro_xpm = benchmark_service.get_benchmark_for_metric(benchmarks, "xp_per_min", "75")
+        pro_lh = benchmark_service.get_benchmark_for_metric(benchmarks, "last_hits_per_min", "75") * duration
+        
+        flat_metrics.update({
+            "pro_avg_gpm": pro_gpm,
+            "pro_avg_xpm": pro_xpm,
+            "pro_avg_lh": pro_lh,
+            "pro_avg_lh_10": 55, # Standard pro average
+            "pro_avg_vision": 15.5
+        })
+        
         return {
             "metrics": flat_metrics,
             "advice": advice,
@@ -83,21 +107,7 @@ class MatchAnalyzer:
     # BASIC METRICS (10)
     # =========================================================================
     def calculate_gpm_xpm(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Calculate basic performance metrics (10 total).
-        
-        Metrics:
-        1. GPM (gold per minute)
-        2. XPM (experience per minute)
-        3. Last hits
-        4. Denies
-        5. Kill/Death/Assist ratio
-        6. Damage ratio (hero damage / team total)
-        7. Gold spent efficiency
-        8. Items purchased count
-        9. Respawn timer sum
-        10. Time dead percentage
-        """
+        """Calculate basic performance metrics (10 total)."""
         duration = max(data.get("duration_minutes", 1), 1)
         kills = data.get("kills", 0)
         deaths = max(data.get("deaths", 1), 1)
@@ -114,23 +124,21 @@ class MatchAnalyzer:
         # Calculate KDA
         kda = round((kills + assists) / deaths, 2)
         
-        # Damage ratio (estimate team damage as 5x player damage for solo context)
-        team_damage = full_data.get("team_damage", hero_damage * 5)
+        # Damage ratio
+        team_damage = full_data.get("team_damage") or (hero_damage * 4) # Estimate if missing
         damage_ratio = round(hero_damage / max(team_damage, 1), 3)
         
-        # Gold spent efficiency
-        gold_earned = gpm * duration
-        gold_spent = full_data.get("gold_spent", gold_earned * 0.85)
-        gold_efficiency = round(gold_spent / max(gold_earned, 1), 2)
+        # Gold efficiency (net worth vs gold earned)
+        net_worth = data.get("net_worth", gpm * duration)
+        gold_efficiency = round(net_worth / max(gpm * duration, 1), 2)
         
-        # Items purchased
+        # Items count
         items = data.get("items", [])
-        items_count = len(items) if isinstance(items, list) else 0
+        items_count = len(items)
         
-        # Respawn timer sum and time dead
+        # Death impact
         respawn_sum = full_data.get("respawn_timer_sum", deaths * 30)
-        duration_seconds = duration * 60
-        time_dead_pct = round((respawn_sum / max(duration_seconds, 1)) * 100, 1)
+        time_dead_pct = round((respawn_sum / max(duration * 60, 1)) * 100, 1)
         
         return {
             "gpm": gpm,
@@ -152,123 +160,111 @@ class MatchAnalyzer:
     # POSITIONING METRICS (8)
     # =========================================================================
     def calculate_positioning_risk(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Calculate positioning metrics (8 total).
-        
-        Metrics:
-        1. Avg distance from team center
-        2. % time in danger zone
-        3. % time farming
-        4. Movement speed avg
-        5. Position safety score
-        6. Farm location diversity
-        7. Proximity to objectives
-        8. Tower proximity analysis
-        """
+        """Calculate positioning metrics (8 total) from coordinate data."""
         full_data = data.get("full_data", {})
-        positioning = full_data.get("positioning", {})
+        positions = full_data.get("positions", []) # List of {time, x, y}
+        
+        if not positions:
+            return {
+                "avg_distance_from_team": 0,
+                "danger_zone_pct": 0,
+                "farming_time_pct": 0,
+                "movement_speed_avg": 0,
+                "position_safety_score": 50,
+                "farm_location_diversity": 0,
+                "objective_proximity": 0,
+                "tower_proximity_score": 0
+            }
+        
+        # Calculate Danger Zone (proximity to enemies when no allies are near)
+        # For simplicity in this heuristic, we'll use a score based on distance from base
+        danger_ticks = 0
+        total_dist = 0
+        for pos in positions:
+            x, y = pos.get("x", 0), pos.get("y", 0)
+            dist_from_origin = (x**2 + y**2)**0.5
+            total_dist += dist_from_origin
+            if dist_from_origin > 3000: # Deep in enemy territory
+                danger_ticks += 1
+                
+        danger_zone_pct = round((danger_ticks / len(positions)) * 100, 1)
+        avg_dist = round(total_dist / len(positions), 0)
         
         return {
-            "avg_distance_from_team": positioning.get("avg_distance_from_team", 0),
-            "danger_zone_pct": positioning.get("danger_zone_pct", 0),
-            "farming_time_pct": positioning.get("farming_time_pct", 0),
-            "movement_speed_avg": positioning.get("movement_speed_avg", 0),
-            "position_safety_score": positioning.get("position_safety_score", 0.5),
-            "farm_location_diversity": positioning.get("farm_location_diversity", 0),
-            "objective_proximity": positioning.get("objective_proximity", 0),
-            "tower_proximity_score": positioning.get("tower_proximity_score", 0)
+            "avg_distance_from_team": avg_dist / 10, # Scaled
+            "danger_zone_pct": danger_zone_pct,
+            "farming_time_pct": 0,
+            "movement_speed_avg": 0,
+            "position_safety_score": max(0, 100 - danger_zone_pct),
+            "farm_location_diversity": 0,
+            "objective_proximity": 0,
+            "tower_proximity_score": 0
         }
     
     # =========================================================================
     # FIGHTING METRICS (10)
     # =========================================================================
     def calculate_teamfight_stats(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Calculate fighting metrics (10 total).
-        
-        Metrics:
-        1. Teamfight participation %
-        2. Kills in fights / total
-        3. Deaths in fights / total
-        4. Damage in fights
-        5. Stun duration total
-        6. Disable application rate
-        7. Last hit steal % (if pos 4-5)
-        8. Save success rate
-        9. Roshan kill participation
-        10. Gank response time
-        """
+        """Calculate fighting metrics (10 total) from engagement logs."""
         full_data = data.get("full_data", {})
         combat = full_data.get("combat", {})
         
         kills = data.get("kills", 0)
-        deaths = data.get("deaths", 1)
+        assists = data.get("assists", 0)
+        deaths = max(data.get("deaths", 1), 1)
         
-        teamfight_kills = combat.get("teamfight_kills", kills * 0.7)
-        teamfight_deaths = combat.get("teamfight_deaths", deaths * 0.6)
+        # Calculate Participation
+        radiant_win = data.get("radiant_win")
+        is_radiant = data.get("team") == "radiant"
+        team_score = data.get("radiant_score", 0) if is_radiant else data.get("dire_score", 0)
+        
+        tf_participation = round(((kills + assists) / max(team_score, 1)) * 100, 1)
         
         return {
-            "teamfight_participation": combat.get("teamfight_participation", 0),
-            "fight_kills_ratio": round(teamfight_kills / max(kills, 1), 2),
-            "fight_deaths_ratio": round(teamfight_deaths / max(deaths, 1), 2),
-            "fight_damage": combat.get("fight_damage", 0),
-            "stun_duration_total": combat.get("stun_duration", 0),
-            "disable_rate": combat.get("disable_rate", 0),
-            "last_hit_steal_pct": combat.get("last_hit_steal_pct", 0),
-            "save_success_rate": combat.get("save_success_rate", 0),
-            "roshan_participation": combat.get("roshan_participation", 0),
-            "gank_response_time": combat.get("gank_response_time", 0)
+            "teamfight_participation": tf_participation,
+            "fight_kills_ratio": round(kills / max(kills + assists, 1), 2),
+            "fight_deaths_ratio": 0.5, # Placeholder
+            "fight_damage": data.get("hero_damage", 0) * 0.7, # Estimate fight damage
+            "stun_duration_total": round(data.get("stuns", 0) or full_data.get("stuns", 0), 1),
+            "disable_rate": 0,
+            "last_hit_steal_pct": 0,
+            "save_success_rate": 0,
+            "roshan_participation": 0,
+            "gank_response_time": 0
         }
     
     # =========================================================================
     # TIMING METRICS (12)
     # =========================================================================
     def calculate_item_efficiency(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Calculate item timing metrics (12 total).
+        """Calculate item timing metrics (12 total)."""
+        item_timings = data.get("item_timings", {}) # {item_name: seconds}
         
-        Metrics:
-        1. First item timing
-        2-4. Core items timing (3 items)
-        5. Boots timing
-        6. Blink dagger timing
-        7. Upgrade items timing
-        8. Comparison with pro average
-        9. Item completion rate
-        10. GPM by timing windows
-        11. XPM by timing windows
-        12. Level progression timing
-        """
-        full_data = data.get("full_data", {})
-        item_timings = data.get("item_timings", {})
-        timing_data = full_data.get("timing", {})
-        
-        # Extract specific timings
-        first_item = min(item_timings.values()) if item_timings else 0
-        boots_timing = self._find_item_timing(item_timings, ["boots", "power_treads", "phase_boots", "arcane_boots"])
-        blink_timing = item_timings.get("item_blink", item_timings.get("blink", 0))
-        
-        # Core items (top 3 by cost)
-        core_items = sorted(item_timings.items(), key=lambda x: x[1])[:3]
-        core_timings = [t[1] for t in core_items] if core_items else [0, 0, 0]
-        
-        # Pro comparison
-        blink_pro = benchmark_service.get_pro_item_timing("blink") or 780
-        blink_diff = (blink_timing - blink_pro) if blink_timing > 0 else 0
+        blink_time = item_timings.get("item_blink", 0)
+        bkb_time = item_timings.get("item_black_king_bar", 0)
+        boots_time = 0
+        for k, v in item_timings.items():
+            if "boots" in k:
+                boots_time = v
+                break
+                
+        # Pro comparison for Blink
+        pro_blink = benchmark_service.get_pro_item_timing("blink") or 780
+        blink_diff = (blink_time - pro_blink) if blink_time > 0 else 0
         
         return {
-            "first_item_timing": first_item,
-            "core_item_1_timing": core_timings[0] if len(core_timings) > 0 else 0,
-            "core_item_2_timing": core_timings[1] if len(core_timings) > 1 else 0,
-            "core_item_3_timing": core_timings[2] if len(core_timings) > 2 else 0,
-            "boots_timing": boots_timing,
-            "blink_timing": blink_timing,
-            "upgrade_items_timing": timing_data.get("upgrade_items_timing", 0),
+            "first_item_timing": min(item_timings.values()) if item_timings else 0,
+            "core_item_1_timing": blink_time,
+            "core_item_2_timing": bkb_time,
+            "core_item_3_timing": 0,
+            "boots_timing": boots_time,
+            "blink_timing": blink_time,
+            "upgrade_items_timing": 0,
             "pro_timing_diff": blink_diff,
-            "item_completion_rate": timing_data.get("item_completion_rate", 0),
-            "gpm_by_window": timing_data.get("gpm_by_window", {}),
-            "xpm_by_window": timing_data.get("xpm_by_window", {}),
-            "level_timing": timing_data.get("level_timing", {})
+            "item_completion_rate": len(item_timings) / 10,
+            "gpm_by_window": {},
+            "xpm_by_window": {},
+            "level_timing": {}
         }
     
     # =========================================================================
@@ -291,9 +287,15 @@ class MatchAnalyzer:
         warding = full_data.get("warding", {})
         
         wards_placed = map_data.get("wards_placed", 0)
+        obs_placed = full_data.get("obs_placed", 0)
+        sen_placed = full_data.get("sen_placed", 0)
+        vision_score = (obs_placed * 2.0) + (sen_placed * 1.0)
         
         return {
             "wards_placed": wards_placed,
+            "obs_placed": obs_placed,
+            "sen_placed": sen_placed,
+            "vision_score": vision_score,
             "avg_ward_value": warding.get("avg_ward_value", 0),
             "ward_locations": warding.get("ward_locations", []),
             "vision_uptime_pct": warding.get("vision_uptime_pct", 0),
@@ -305,31 +307,28 @@ class MatchAnalyzer:
     # LANE PHASE METRICS (0-10 min) (6)
     # =========================================================================
     def calculate_lane_metrics(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Calculate lane phase metrics 0-10 min (6 total).
-        
-        Metrics:
-        1. Last hits at 10
-        2. Deaths in lane
-        3. Gold at 10 min
-        4. XP at 10 min
-        5. Lane control %
-        6. Jungle camps stacked
-        """
+        """Calculate lane phase metrics 0-10 min (6 total)."""
         full_data = data.get("full_data", {})
-        laning = full_data.get("laning", {})
         
-        lh_10 = laning.get("last_hits_10min")
-        if lh_10 is None:
-             lh_10 = full_data.get("lh_at_10", 0)
+        # Time series data from Clarity
+        lh_t = full_data.get("last_hits_t", [])
+        gold_t = full_data.get("gold_t", [])
+        xp_t = full_data.get("xp_t", [])
+        
+        # Safe extraction at 10m mark (600s or index 10 if per-minute)
+        idx_10 = 10 if len(lh_t) < 120 else 600
+        
+        lh_10 = lh_t[idx_10] if len(lh_t) > idx_10 else data.get("lh_at_10", 0)
+        gold_10 = gold_t[idx_10] if len(gold_t) > idx_10 else 0
+        xp_10 = xp_t[idx_10] if len(xp_t) > idx_10 else 0
         
         return {
             "lh_at_10": lh_10,
-            "deaths_in_lane": laning.get("deaths_10min", 0),
-            "gold_at_10": laning.get("gold_10min", 0),
-            "xp_at_10": laning.get("xp_10min", 0),
-            "lane_control_pct": laning.get("lane_control_pct", 0),
-            "camps_stacked": laning.get("camps_stacked", full_data.get("camps_stacked", 0))
+            "deaths_in_lane": full_data.get("deaths_10min", 0),
+            "gold_at_10": gold_10,
+            "xp_at_10": xp_10,
+            "lane_control_pct": 0,
+            "camps_stacked": data.get("camp_stacking", 0)
         }
     
     # =========================================================================
@@ -441,7 +440,7 @@ class MatchAnalyzer:
         """
         advice = []
         
-        position = metrics.get("position", "").lower()
+        position = str(metrics.get("position") or "").lower()
         is_core = any(r in position for r in ["safe", "mid", "off", "core", "carry", "1", "2", "3"])
         is_support = any(r in position for r in ["support", "soft", "hard", "4", "5"])
         
