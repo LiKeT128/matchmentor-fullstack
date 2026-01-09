@@ -58,20 +58,7 @@ export const HeroSelectionModal: React.FC<HeroSelectionModalProps> = ({
                         <h3 className={styles.radiant}>☀️ RADIANT</h3>
                         <div className={styles.heroList}>
                             {radiantHeroes.map(hero => {
-                                let heroShortName = hero.hero_name.replace('npc_dota_hero_', '');
-                                // Manual fixes for specific heroes
-                                if (heroShortName === 'rattletrap') heroShortName = 'clockwerk';
-                                if (heroShortName === 'furion') heroShortName = 'natures_prophet'; // or furion if supported
-                                if (heroShortName === 'necrolyte') heroShortName = 'necrophos';
-                                if (heroShortName === 'windrunner') heroShortName = 'windranger';
-                                if (heroShortName === 'obsidian_destroyer') heroShortName = 'outworld_destroyer';
-                                if (heroShortName === 'shredder') heroShortName = 'timbersaw';
-                                if (heroShortName === 'doom_bringer') heroShortName = 'doom';
-                                if (heroShortName === 'nevermore') heroShortName = 'shadow_fiend';
-                                if (heroShortName === 'skeleton_king') heroShortName = 'wraith_king';
-                                if (heroShortName === 'magnataur') heroShortName = 'magnus';
-                                if (heroShortName === 'wisp') heroShortName = 'io';
-                                if (heroShortName === 'centaur') heroShortName = 'centaur'; // usually correct
+                                const heroShortName = hero.hero_name.replace('npc_dota_hero_', '');
 
                                 return (
                                     <button
@@ -110,19 +97,7 @@ export const HeroSelectionModal: React.FC<HeroSelectionModalProps> = ({
                         <h3 className={styles.dire}>🔴 DIRE</h3>
                         <div className={styles.heroList}>
                             {direHeroes.map(hero => {
-                                let heroShortName = hero.hero_name.replace('npc_dota_hero_', '');
-                                // Manual fixes for specific heroes
-                                if (heroShortName === 'rattletrap') heroShortName = 'clockwerk';
-                                if (heroShortName === 'furion') heroShortName = 'natures_prophet';
-                                if (heroShortName === 'necrolyte') heroShortName = 'necrophos';
-                                if (heroShortName === 'windrunner') heroShortName = 'windranger';
-                                if (heroShortName === 'obsidian_destroyer') heroShortName = 'outworld_destroyer';
-                                if (heroShortName === 'shredder') heroShortName = 'timbersaw';
-                                if (heroShortName === 'doom_bringer') heroShortName = 'doom';
-                                // if (heroShortName === 'nevermore') heroShortName = 'shadow_fiend';
-                                if (heroShortName === 'skeleton_king') heroShortName = 'wraith_king';
-                                if (heroShortName === 'magnataur') heroShortName = 'magnus';
-                                if (heroShortName === 'wisp') heroShortName = 'io';
+                                const heroShortName = hero.hero_name.replace('npc_dota_hero_', '');
 
                                 return (
                                     <button

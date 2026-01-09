@@ -1186,12 +1186,34 @@ def _select_hero_logic(
         else:
             kda = round((kills + assists) / deaths, 2)
 
+        # Calculate Teamfight Participation
+        radiant_score = match.parsed_data.get("radiant_score", 0)
+        dire_score = match.parsed_data.get("dire_score", 0)
+        
+        # OpenDota often puts isRadiant in player object, otherwise infer from slot
+        is_radiant = selected_player.get("isRadiant")
+        if is_radiant is None:
+            # Fallback: slots 0-127 are Radiant
+            slot = selected_player.get("player_id", 0) # sometimes player_id is slot index 0-9
+            # Wait, normalize_match_data sets player_id=idx (0-9). 
+            # Slots are 0-4 (Rad), 128-132 (Dire). 
+            # In normalize: 0-4 is Radiant.
+            slot = selected_player.get("player_id", 0)
+            is_radiant = slot < 5
+            
+        team_kills = radiant_score if is_radiant else dire_score
+        if team_kills > 0:
+            tf_participation = round(((kills + assists) / team_kills) * 100, 1)
+        else:
+            tf_participation = 0.0
+            
         metrics = {
             # Basic stats
             "kills": kills,
             "deaths": deaths,
             "assists": assists,
             "kda": kda,
+            "teamfight_participation": tf_participation,
             
             # Farming
             "gpm": gpm,
@@ -1225,14 +1247,50 @@ def _select_hero_logic(
         # Simple advice based on stats
         advice = []
         
-        # Compare GPM to rough average
-        if gpm < 400 and selected_player.get("position") in ["Core", "Safe Lane", "Mid Lane", "Off Lane"]:
-             metrics["weaknesses"].append("Low GPM compared to average")
+        # 1. GPM Analysis
+        role = selected_player.get("position", "unknown")
+        is_core = role in ["Safe Lane", "Mid Lane", "Off Lane", "1", "2", "3"] or "Core" in role
+        
+        if is_core and gpm < 400:
+             metrics["weaknesses"].append("Low GPM for core")
              advice.append({
                  "type": "farming",
-                 "severity": "warning",
-                  "message": f"Your GPM {gpm} is below average for a Core.",
-                  "suggestion": "Focus on efficient farming patterns."
+                 "severity": "high",
+                 "message": f"Your GPM ({gpm}) is very low for a core role.",
+                 "suggestion": "Focus on last hitting in lane and taking jungle camps between waves."
+             })
+        elif is_core and gpm > 600:
+             metrics["strengths"].append("Excellent Farming speed")
+             
+        # 2. Survival Analysis
+        if deaths > 8:
+            metrics["weaknesses"].append("High death count")
+            advice.append({
+                "type": "survival",
+                "severity": "critical",
+                "message": f"You died {deaths} times. Each death gives gold to enemies.",
+                "suggestion": "Play safer when enemies are missing. Buy defensive items like BKB or Linkens."
+            })
+            
+        # 3. Teamfight Analysis
+        if tf_participation < 30.0:
+            metrics["weaknesses"].append("Low teamfight impact")
+            advice.append({
+                "type": "fighting",
+                "severity": "medium",
+                "message": f"You participated in only {tf_participation}% of kills.",
+                "suggestion": "Carry a TP scroll and join fights. Don't AFK farm when your team needs you."
+            })
+        elif tf_participation > 60.0:
+            metrics["strengths"].append("High teamfight participation")
+             
+        # 4. Laning Analysis (Last Hits at 10m would be better, but using total last hits as proxy for now)
+        if last_hits < 50 and match.duration_minutes > 20 and is_core:
+             advice.append({
+                 "type": "laning",
+                 "severity": "high",
+                 "message": "Very low CS count.",
+                 "suggestion": "Practice last hitting in demo mode. Aim for 50 CS by 10 minutes."
              })
              
         if kda < 2.0:
@@ -1276,19 +1334,24 @@ def _select_hero_logic(
         
         analysis = analyzer.analyze_match(analysis_input)
         
-        # Merge analysis metrics with extracted metrics
+        # Merge analysis metrics with extracted metrics (preserve our TF% and other raw data)
         full_metrics = analysis["metrics"].copy()
+        
+        # Ensure our calculated TF% is preserved if analyzer didn't calculate it better
+        if "teamfight_participation" in metrics:
+            full_metrics["teamfight_participation"] = metrics["teamfight_participation"]
+            
         full_metrics.update({
             "overall_score": analysis["overall_score"],
-            "strengths": analysis["strengths"],
-            "weaknesses": analysis["weaknesses"],
+            "strengths": analysis["strengths"] + metrics.get("strengths", []), # Merge strengths
+            "weaknesses": analysis["weaknesses"] + metrics.get("weaknesses", []), # Merge weaknesses
             "power_spikes": analysis["power_spikes"],
             "mistakes": analysis["mistakes"]
         })
         
         # Update match with new metrics
         match.metrics = full_metrics
-        match.advice = analysis["advice"]
+        match.advice = analysis["advice"] + advice  # Merge our ruled-based advice with analyzer advice
         
         db.commit()
         db.refresh(match)
