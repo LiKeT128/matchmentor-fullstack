@@ -323,6 +323,7 @@ class OpenDotaClient:
                 # Benchmarks & Computed
                 "lh_at_10": ((player.get("benchmarks") or {}).get("lhten") or {}).get("raw", 0),
                 "item_timings": self._extract_item_timings(player.get("purchase_log") or []),
+            })
         return {
             "match_id": str(data.get("match_id")),
             "duration_minutes": (data.get("duration", 0) // 60),
