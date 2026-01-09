@@ -215,6 +215,8 @@ class OpenDotaClient:
         heroes: List[Dict[str, Any]] = []
         
         for idx, player in enumerate(players):
+            if not player:
+                continue
             hero_id = player.get("hero_id")
             
             # Resolve hero name from cache
@@ -309,6 +311,8 @@ class OpenDotaClient:
             return timings
             
         for entry in purchase_log:
+            if not entry:
+                continue
             key = entry.get("key")
             time = entry.get("time")
             if key and time is not None:
