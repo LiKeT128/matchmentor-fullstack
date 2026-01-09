@@ -1381,6 +1381,7 @@ def _select_hero_logic(
             "hero_healing": metrics["hero_healing"],
             "items": metrics["items"],
             "item_timings": metrics["item_timings"],
+            "position": metrics.get("position", selected_player.get("position", "unknown")),
             "full_data": selected_player
         }
         

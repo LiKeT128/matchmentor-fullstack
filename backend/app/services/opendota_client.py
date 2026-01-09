@@ -249,14 +249,23 @@ class OpenDotaClient:
                 elif lane == 5:
                     position = "Roaming"
             
-            # Fallback to player_slot if lane info is missing
+            # Improved Fallback: Map slots to standard roles if lane info is missing
             if position == "unknown":
                 player_slot = player.get("player_slot")
                 if player_slot is not None:
-                    if 0 <= player_slot <= 4:
-                        position = f"Slot {player_slot + 1}"
-                    elif 128 <= player_slot <= 132:
-                        position = f"Slot {player_slot - 127}"
+                    # Normalize slot (0-4 for Radiant, 128-132 for Dire)
+                    # Standard assumption: 1=Safe, 2=Mid, 3=Off, 4=Soft Supp, 5=Hard Supp
+                    # Map 0->Safe, 1->Mid, 2->Off, 3->Soft, 4->Hard
+                    slot_idx = player_slot if player_slot < 128 else player_slot - 128
+                    
+                    role_map = {
+                        0: "Safe Lane",     # Pos 1
+                        1: "Mid Lane",      # Pos 2
+                        2: "Off Lane",      # Pos 3
+                        3: "Soft Support",  # Pos 4
+                        4: "Hard Support"   # Pos 5
+                    }
+                    position = role_map.get(slot_idx, f"Slot {slot_idx + 1}")
             
             heroes.append({
                 "player_id": idx,
@@ -287,7 +296,26 @@ class OpenDotaClient:
                 "lane_efficiency_pct": player.get("lane_efficiency_pct", 0),
                 "purchase_ward_observer": player.get("purchase_ward_observer", 0),
                 "purchase_ward_sentry": player.get("purchase_ward_sentry", 0),
+                
+                # Benchmarks & Computed
+                "lh_at_10": player.get("benchmarks", {}).get("lhten", {}).get("raw", 0),
+                "item_timings": self._extract_item_timings(player.get("purchase_log", [])),
             })
+            
+    def _extract_item_timings(self, purchase_log: List[Dict[str, Any]]) -> Dict[str, int]:
+        """Process purchase log into a dictionary of earliest timings."""
+        timings = {}
+        if not purchase_log:
+            return timings
+            
+        for entry in purchase_log:
+            key = entry.get("key")
+            time = entry.get("time")
+            if key and time is not None:
+                # Keep earliest timing
+                if key not in timings:
+                    timings[key] = time
+        return timings
         
         # Check for unknown heroes
         unknown_count = sum(1 for h in heroes if h["hero_name"] == "unknown")

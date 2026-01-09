@@ -43,10 +43,12 @@ class MatchAnalyzer:
         metrics["warding"] = self.calculate_warding_value(parsed_data)
         metrics["lane_phase"] = self.calculate_lane_metrics(parsed_data)
         metrics["mid_game"] = self.calculate_midgame_metrics(parsed_data)
+        metrics["mid_game"] = self.calculate_midgame_metrics(parsed_data)
         metrics["late_game"] = self.calculate_lategame_metrics(parsed_data)
         
         # Flatten metrics for storage
         flat_metrics = self._flatten_metrics(metrics)
+        flat_metrics["position"] = parsed_data.get("position")
         
         # Compare with benchmarks
         hero_name = parsed_data.get("hero_name", "")
@@ -317,13 +319,17 @@ class MatchAnalyzer:
         full_data = data.get("full_data", {})
         laning = full_data.get("laning", {})
         
+        lh_10 = laning.get("last_hits_10min")
+        if lh_10 is None:
+             lh_10 = full_data.get("lh_at_10", 0)
+        
         return {
-            "lh_at_10": laning.get("last_hits_10min", 0),
+            "lh_at_10": lh_10,
             "deaths_in_lane": laning.get("deaths_10min", 0),
             "gold_at_10": laning.get("gold_10min", 0),
             "xp_at_10": laning.get("xp_10min", 0),
             "lane_control_pct": laning.get("lane_control_pct", 0),
-            "camps_stacked": laning.get("camps_stacked", 0)
+            "camps_stacked": laning.get("camps_stacked", full_data.get("camps_stacked", 0))
         }
     
     # =========================================================================
@@ -435,6 +441,10 @@ class MatchAnalyzer:
         """
         advice = []
         
+        position = metrics.get("position", "").lower()
+        is_core = any(r in position for r in ["safe", "mid", "off", "core", "carry", "1", "2", "3"])
+        is_support = any(r in position for r in ["support", "soft", "hard", "4", "5"])
+        
         # ===== FARMING ADVICE =====
         gpm_ratio = benchmarks.get("gpm_ratio", 1.0)
         if gpm_ratio < 0.8:
@@ -478,7 +488,8 @@ class MatchAnalyzer:
         
         # ===== WARDING ADVICE =====
         wards_placed = metrics.get("wards_placed", 0)
-        if wards_placed < 5:
+        # Only advise supports or if vision is critically low for team
+        if wards_placed < 5 and not is_core:
             advice.append({
                 "category": "vision",
                 "priority": "low",
@@ -488,7 +499,7 @@ class MatchAnalyzer:
         
         # ===== LANE PHASE ADVICE =====
         lh_at_10 = metrics.get("lh_at_10", 0)
-        if lh_at_10 < 50:
+        if lh_at_10 < 50 and is_core:
             advice.append({
                 "category": "laning",
                 "priority": "high",
