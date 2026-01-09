@@ -298,7 +298,7 @@ class OpenDotaClient:
                 "purchase_ward_sentry": player.get("purchase_ward_sentry", 0),
                 
                 # Benchmarks & Computed
-                "lh_at_10": (player.get("benchmarks") or {}).get("lhten", {}).get("raw", 0),
+                "lh_at_10": ((player.get("benchmarks") or {}).get("lhten") or {}).get("raw", 0),
                 "item_timings": self._extract_item_timings(player.get("purchase_log") or []),
             })
             
