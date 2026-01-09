@@ -226,10 +226,31 @@ class OpenDotaClient:
             # Strip prefix for CDN compatibility
             short_name = hero_name_raw.replace("npc_dota_hero_", "") if hero_name_raw else "unknown"
             
-            # CDN expects internal Valve names (e.g. "zuus", "magnataur")
-            # We do NOT want to map them to "zeus" or "magnus" because the CDN files don't exist under those names.
-            # Using short_name directly (raw internal name without prefix).
-            image_name = short_name
+            # CDN expects specific names for some heroes that differ from internal Valve names
+            image_mapping = {
+                "zuus": "zeus",
+                "windrunner": "windranger",
+                "necrolyte": "necrophos",
+                "treant": "treant_protector",
+                "obsidian_destroyer": "outworld_destroyer",
+                "rattletrap": "clockwerk",
+                "shredder": "timbersaw",
+                "skeleton_king": "wraith_king",
+                "doom_bringer": "doom",
+                "wisp": "io",
+                "magnataur": "magnus",
+                "life_stealer": "lifestealer",
+                "abyssal_underlord": "underlord",
+                "nevermore": "shadow_fiend",
+                "queenofpain": "queen_of_pain",
+                "vengefulspirit": "vengeful_spirit",
+                "antimage": "antimage",
+                "broodmother": "broodmother",
+                "night_stalker": "night_stalker",
+                "centaur": "centaur",
+            }
+            
+            image_name = image_mapping.get(short_name, short_name)
             
             # Determine team
             is_radiant = player.get("isRadiant", idx < 5)
@@ -302,30 +323,6 @@ class OpenDotaClient:
                 # Benchmarks & Computed
                 "lh_at_10": ((player.get("benchmarks") or {}).get("lhten") or {}).get("raw", 0),
                 "item_timings": self._extract_item_timings(player.get("purchase_log") or []),
-            })
-            
-    def _extract_item_timings(self, purchase_log: List[Dict[str, Any]]) -> Dict[str, int]:
-        """Process purchase log into a dictionary of earliest timings."""
-        timings = {}
-        if not purchase_log:
-            return timings
-            
-        for entry in purchase_log:
-            if not entry:
-                continue
-            key = entry.get("key")
-            time = entry.get("time")
-            if key and time is not None:
-                # Keep earliest timing
-                if key not in timings:
-                    timings[key] = time
-        return timings
-        
-        # Check for unknown heroes
-        unknown_count = sum(1 for h in heroes if h["hero_name"] == "unknown")
-        if unknown_count > 0:
-            logger.warning(f"Match {data.get('match_id')}: {unknown_count} heroes still unknown after resolution")
-        
         return {
             "match_id": str(data.get("match_id")),
             "duration_minutes": (data.get("duration", 0) // 60),
@@ -343,6 +340,23 @@ class OpenDotaClient:
             "od_data": data.get("od_data", {}),
             "source": "opendota",
         }
+
+    def _extract_item_timings(self, purchase_log: List[Dict[str, Any]]) -> Dict[str, int]:
+        """Process purchase log into a dictionary of earliest timings."""
+        timings = {}
+        if not purchase_log:
+            return timings
+            
+        for entry in purchase_log:
+            if not entry:
+                continue
+            key = entry.get("key")
+            time = entry.get("time")
+            if key and time is not None:
+                # Keep earliest timing
+                if key not in timings:
+                    timings[key] = time
+        return timings
 
 
 # Module-level singleton for convenience
