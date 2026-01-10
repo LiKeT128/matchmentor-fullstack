@@ -1043,248 +1043,151 @@ def _extract_heroes_from_match(parsed_data: dict) -> list[dict]:
     
     return heroes
 
-@router.post("/{match_id}/select-hero", response_model=SelectHeroResponse)
-def select_hero_path(
+from pydantic import BaseModel
+
+class SelectHeroRequest(BaseModel):
+    """Request body for selecting a hero and analyzing match."""
+    match_id: Optional[str] = None
+    hero_name: str
+
+@router.post("/{match_id}/select-hero")
+async def select_hero(
     match_id: str,
     request: SelectHeroRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
-    Selects a hero for a specific match using path parameter.
-    This is the preferred endpoint for frontend (path: /api/matches/{match_id}/select-hero).
+    Select a hero from the match and analyze that hero's performance.
+    
+    This endpoint:
+    1. Finds the match in database
+    2. Validates the hero exists in parsed match data
+    3. Calls MatchAnalyzer.analyze_match() for that specific hero
+    4. Saves the analysis results to database
+    5. Returns complete metrics and advice to frontend
     """
-    # Forward to main logic with match_id from path
-    request.match_id = match_id
-    return _select_hero_logic(request, current_user, db)
-
-
-@router.post("/select-hero", response_model=SelectHeroResponse)
-def select_hero(
-    request: SelectHeroRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """
-    Selects a hero for a specific match and triggers analysis (body param version).
-    For path param version, use POST /{match_id}/select-hero instead.
-    """
-    return _select_hero_logic(request, current_user, db)
-
-
-def _select_hero_logic(
-    request: SelectHeroRequest,
-    current_user: User,
-    db: Session
-):
-    """Shared logic for hero selection."""
-    match_id = request.match_id
-    logger.info(f"SelectHero: Entering. match_id='{match_id}', user_id={current_user.id}")
-
+    
+    logger.info(f"[select_hero] START: match_id={match_id}, hero_name={request.hero_name}, user_id={current_user.id}")
+    
     try:
-        # Find match by match_id first (Dota ID), then by internal ID
+        # STEP 1: Validate inputs exist
+        if not match_id or not match_id.strip():
+            logger.error("[select_hero] FAIL: match_id is empty")
+            raise ValueError("match_id is required")
+        
+        if not request.hero_name or not request.hero_name.strip():
+            logger.error("[select_hero] FAIL: hero_name is empty")
+            raise ValueError("hero_name is required")
+        
+        logger.info(f"[select_hero] STEP 1 OK: Inputs validated")
+        
+        # STEP 2: Find match in database
+        logger.info(f"[select_hero] STEP 2: Querying database for match_id={match_id}")
+        
         match = db.query(Match).filter(
             Match.match_id == match_id,
             Match.player_id == current_user.id
         ).first()
         
-        if match:
-            logger.info(f"SelectHero: Found match by match_id (Dota ID). ID={match.id}")
-        
-        if not match and match_id.isdigit():
-            val = int(match_id)
-            # Verify length to ensure we don't mix up Dota ID (10 chars) with internal ID
-            if val < 100000000:
-                logger.info(f"SelectHero: Attempting fallback to internal ID lookup for {val}")
-                match = db.query(Match).filter(
-                    Match.id == val,
-                    Match.player_id == current_user.id
-                ).first()
-                if match:
-                     logger.info(f"SelectHero: Found match by Internal ID. MatchID={match.match_id}")
-        
         if not match:
-            logger.error(f"SelectHero: Match NOT FOUND. match_id='{match_id}', user_id={current_user.id}. Query returned None.")
-            # Debug: Check if match exists for ANY user?
-            debug_check = db.query(Match).filter(Match.match_id == match_id).first()
-            if debug_check:
-                logger.error(f"SelectHero: Match DOES exist but for player_id={debug_check.player_id}. Access Denied or ID Mismatch.")
+            logger.error(f"[select_hero] STEP 2 FAIL: Match {match_id} not found for user {current_user.id}")
+            raise ValueError(f"Match {match_id} not found")
+        
+        logger.info(f"[select_hero] STEP 2 OK: Found match (id={match.id})")
+        
+        # STEP 3: Parse JSON from database
+        logger.info(f"[select_hero] STEP 3: Parsing match.parsed_data...")
+        
+        try:
+            # Handle both string and dict formats for robustness
+            if isinstance(match.parsed_data, str):
+                parsed_data = json.loads(match.parsed_data)
             else:
-                logger.error("SelectHero: Match does not exist in DB at all.")
+                parsed_data = match.parsed_data
                 
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Match not found"
-            )
+            heroes_count = len(parsed_data.get("heroes", []))
+            logger.info(f"[select_hero] STEP 3 OK: Parsed JSON with {heroes_count} heroes")
+        except json.JSONDecodeError as e:
+            logger.error(f"[select_hero] STEP 3 FAIL: JSON error - {str(e)}")
+            raise ValueError(f"Invalid JSON in parsed_data")
+        except Exception as e:
+            logger.error(f"[select_hero] STEP 3 FAIL: Unexpected parse error - {str(e)}")
+            raise ValueError(f"Failed to process match data")
         
-        if not match.parsed_data:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Match has no parsed data for hero selection"
-            )
+        # STEP 4: Validate hero exists in match
+        logger.info(f"[select_hero] STEP 4: Searching for hero '{request.hero_name}'...")
         
-        # Find the selected hero in parsed_data
-        # 1. Try to find match in 'heroes' list (which has corrected names/data)
-        heroes = match.parsed_data.get("heroes", [])
-        matched_hero_entry = None
+        heroes_list = parsed_data.get("heroes", [])
+        hero_found = False
         
-        logger.info(f"SelectHero: Request '{request.hero_name}'. Checking 'heroes' list ({len(heroes)} entries)")
-        
-        # Try exact match or fuzzy match on 'heroes' list
-        for h in heroes:
-            h_name = h.get("hero_name", "unknown")
-            # Normalize
-            h_short = h_name.replace("npc_dota_hero_", "")
-            r_short = request.hero_name.replace("npc_dota_hero_", "")
-            
-            if h_short == r_short:
-                matched_hero_entry = h
+        for hero in heroes_list:
+            if hero.get("hero_name") == request.hero_name:
+                hero_found = True
+                logger.info(f"[select_hero] STEP 4 OK: Hero found")
                 break
-                
-        # If not found data in heroes, maybe try players directly (fallback)
-        
-        # Handle OpenDota structure: data might be in 'raw' -> 'players'
-        players = match.parsed_data.get("players", [])
-        if not players:
-             logger.info("SelectHero: 'players' list empty/missing. Checking 'raw.players' (OpenDota style).")
-             raw_data = match.parsed_data.get("raw", {})
-             players = raw_data.get("players", [])
-        
-        selected_player = None
-        
-        if matched_hero_entry:
-            pid = matched_hero_entry.get("player_id")
-            logger.info(f"Found matched hero entry. Player ID: {pid}")
-            
-            # IMPORTANT: matched_hero_entry from 'heroes' already contains all metrics
-            # (kills, deaths, gold_per_min, etc.) from our _normalize_match_data
-            selected_player = matched_hero_entry
-            
-            # Optionally merge any missing fields from raw players array
-            if players and pid is not None and 0 <= pid < len(players):
-                raw_player = players[pid]
-                # Only add fields that are missing from matched_hero_entry
-                for key, value in raw_player.items():
-                    if key not in selected_player or selected_player.get(key) in (None, 0, ""):
-                        selected_player[key] = value
-            
-            logger.info(f"Selected player data: gpm={selected_player.get('gold_per_min')}, kills={selected_player.get('kills')}")
-                 
-        else:
-            # Fallback: legacy search in 'players' list directly
-            logger.info("Hero not found in 'heroes' list. Searching 'players' list directly...")
-            for player in players:
-                player_hero = player.get("hero_name", player.get("hero", ""))
-                
-                # Check for OpenDota hero_id if name missing
-                if not player_hero and "hero_id" in player:
-                     # This would require ID->Name map, skipping for now unless critical
-                     pass
-                     
-                p_short = str(player_hero).replace("npc_dota_hero_", "")
-                r_short = request.hero_name.replace("npc_dota_hero_", "")
-                
-                if p_short == r_short:
-                    selected_player = player
-                    break
-                    
-            if not selected_player:
-                 # Try finding by display name or loose match as fallback
-                for player in players:
-                     player_hero = player.get("hero_name", player.get("hero", ""))
-                     if player_hero and request.hero_name.lower() in str(player_hero).lower():
-                         selected_player = player
-                         break
-        
-        if not selected_player:
-            logger.error(f"Hero '{request.hero_name}' NOT found in match {match.match_id}")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Hero '{request.hero_name}' not found in match"
-            )
-        
-        # Extract ALL metrics for this player
-        # Note: OpenDota fields are gold_per_min, xp_per_min, last_hits, denies.
-        # Our internal parser fields are gpm, xpm, last_hits, denies.
-        
-        # Try to get metrics from standard keys, then OpenDota keys
         
         if not hero_found:
-            available_heroes = [h.get("hero_name", "unknown") for h in heroes_list]
-            logger.error(f"[select_hero] HERO_VALIDATION FAILED: Hero '{request.hero_name}' not in match. Available: {available_heroes}")
-            raise ValueError(f"Hero '{request.hero_name}' not found in this match. Available heroes: {', '.join(available_heroes)}")
+            available = [h.get("hero_name", "?") for h in heroes_list][:5]
+            logger.error(f"[select_hero] STEP 4 FAIL: Hero '{request.hero_name}' not found. Available: {available}")
+            raise ValueError(f"Hero '{request.hero_name}' not in match")
         
-        # STEP 6: Initialize MatchAnalyzer
-        logger.info(f"[select_hero] ANALYZER_INIT: Creating MatchAnalyzer instance...")
+        # STEP 5: Initialize analyzer
+        logger.info(f"[select_hero] STEP 5: Creating MatchAnalyzer...")
         
         try:
             analyzer = MatchAnalyzer()
-            logger.info(f"[select_hero] ANALYZER_INIT OK: MatchAnalyzer created successfully")
+            logger.info(f"[select_hero] STEP 5 OK: Analyzer created")
         except Exception as e:
-            logger.error(f"[select_hero] ANALYZER_INIT FAILED: {str(e)}", exc_info=True)
-            raise ValueError(f"Failed to initialize analyzer: {str(e)}")
+            logger.error(f"[select_hero] STEP 5 FAIL: {str(e)}", exc_info=True)
+            raise ValueError(f"Analyzer initialization failed: {str(e)}")
         
-        # STEP 7: Call analyze_match() for the selected hero
-        logger.info(f"[select_hero] ANALYZE_CALL: Calling analyze_match() for hero='{request.hero_name}'...")
+        # STEP 6: Analyze match
+        logger.info(f"[select_hero] STEP 6: Calling analyze_match()...")
         
         try:
             analysis = analyzer.analyze_match(parsed_data, hero_name=request.hero_name)
-            
-            metrics = analysis.get("metrics", {})
-            metrics_keys = list(metrics.keys())
-            advice = analysis.get("advice", [])
-            overall_score = analysis.get("overall_score", 0)
-            
-            logger.info(f"[select_hero] ANALYZE_RESULT OK: Got metrics with keys={metrics_keys[:10]}..., advice_count={len(advice)}, score={overall_score}")
+            logger.info(f"[select_hero] STEP 6 OK: Analysis complete")
         except Exception as e:
-            logger.error(f"[select_hero] ANALYZE_CALL FAILED: {str(e)}", exc_info=True)
-            raise ValueError(f"Failed to analyze match: {str(e)}")
+            logger.error(f"[select_hero] STEP 6 FAIL: {str(e)}", exc_info=True)
+            raise ValueError(f"Analysis failed: {str(e)}")
         
-        # STEP 9: Update match record
-        logger.info(f"[select_hero] DB_UPDATE: Updating match record in database...")
+        # STEP 7: Prepare data
+        logger.info(f"[select_hero] STEP 7: Preparing data results...")
+        metrics = analysis.get("metrics", {})
+        advice = analysis.get("advice", [])
         
-        try:
-            match.selected_hero_name = request.hero_name
-            match.selected_at = datetime.utcnow()
-            match.hero_name = request.hero_name
-            
-            # Store as dicts for SQLAlchemy JSON compatibility
-            match.metrics = metrics
-            match.advice = advice
-            
-            # Explicitly mark as modified for JSON update tracking
-            from sqlalchemy.orm.attributes import flag_modified
-            flag_modified(match, "metrics")
-            flag_modified(match, "advice")
-            
-            logger.info(f"[select_hero] DB_UPDATE OK: Match record updated in memory")
-        except Exception as e:
-            logger.error(f"[select_hero] DB_UPDATE FAILED: {str(e)}", exc_info=True)
-            raise ValueError(f"Failed to update match record: {str(e)}")
+        # STEP 8: Update match record
+        logger.info(f"[select_hero] STEP 8: Updating match record fields...")
         
-        # STEP 10: Commit to database
-        logger.info(f"[select_hero] DB_COMMIT: Committing transaction to database...")
+        match.selected_hero_name = request.hero_name
+        match.selected_at = datetime.utcnow()
+        match.hero_name = request.hero_name
+        match.metrics = metrics
+        match.advice = advice
+        
+        # Explicitly mark as modified for JSON update tracking
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(match, "metrics")
+        flag_modified(match, "advice")
+        
+        logger.info(f"[select_hero] STEP 8 OK: Record updated in session")
+        
+        # STEP 9: Commit to database
+        logger.info(f"[select_hero] STEP 9: Committing to database...")
         
         try:
             db.commit()
-            logger.info(f"[select_hero] DB_COMMIT OK: Changes saved to database")
+            logger.info(f"[select_hero] STEP 9 OK: Commit successful")
         except Exception as e:
             db.rollback()
-            logger.error(f"[select_hero] DB_COMMIT FAILED: {str(e)}", exc_info=True)
-            raise ValueError(f"Failed to save to database: {str(e)}")
+            logger.error(f"[select_hero] STEP 9 FAIL: {str(e)}", exc_info=True)
+            raise ValueError(f"Database commit failed: {str(e)}")
         
-        # STEP 11: Refresh and prepare response
-        logger.info(f"[select_hero] REFRESH: Refreshing match object from database...")
+        # STEP 10: Refresh and return
+        logger.info(f"[select_hero] STEP 10: Refreshing and returning analysis...")
         
-        try:
-            db.refresh(match)
-            logger.info(f"[select_hero] REFRESH OK: Match object refreshed")
-        except Exception as e:
-            logger.error(f"[select_hero] REFRESH FAILED: {str(e)}", exc_info=True)
-            raise ValueError(f"Failed to refresh match data: {str(e)}")
-        
-        # STEP 12: Build and return response
-        logger.info(f"[select_hero] SUCCESS: Building response...")
+        db.refresh(match)
         
         response = {
             "success": True,
@@ -1292,25 +1195,24 @@ def _select_hero_logic(
             "selected_hero": request.hero_name,
             "metrics": metrics,
             "advice": advice,
-            "overall_score": overall_score,
+            "overall_score": analysis.get("overall_score", 0),
             "strengths": analysis.get("strengths", []),
             "weaknesses": analysis.get("weaknesses", []),
             "power_spikes": analysis.get("power_spikes", []),
             "mistakes": analysis.get("mistakes", [])
         }
         
-        logger.info(f"[select_hero] COMPLETE: Successfully analyzed hero '{request.hero_name}' for match {match_id}")
+        logger.info(f"[select_hero] SUCCESS: Endpoint complete for match {match_id}")
         return response
         
     except ValueError as e:
-        logger.warning(f"[select_hero] CLIENT_ERROR: {str(e)}")
+        logger.warning(f"[select_hero] ERROR_400: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
-    
     except Exception as e:
-        logger.error(f"[select_hero] CRITICAL_ERROR: {str(e)}", exc_info=True)
+        logger.error(f"[select_hero] ERROR_500: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-@router.post("/select-hero", response_model=SelectHeroResponse)
+@router.post("/select-hero")
 async def select_hero_legacy(
     request: SelectHeroRequest,
     current_user: User = Depends(get_current_user),
