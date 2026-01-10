@@ -23,36 +23,59 @@ class MatchAnalyzer:
     - Late Game (4): Gold efficiency, HG control, etc.
     """
     
-    def analyze_match(self, parsed_data: Dict[str, Any]) -> Dict[str, Any]:
+    def analyze_match(self, parsed_data: Dict[str, Any], hero_name: Optional[str] = None) -> Dict[str, Any]:
         """
-        Analyze parsed match data and generate all metrics/advice.
+        Analyze parsed match data for a specific hero or the match overall.
         
         Args:
-            parsed_data: Normalized data from ReplayParser.
+            parsed_data: Full match data from ReplayParser.
+            hero_name: npc_dota_hero_* name to isolate.
             
         Returns:
             Dictionary with metrics, advice, score, strengths, weaknesses.
         """
+        # 1. Isolate the target player data
+        player_data = None
+        heroes_list = parsed_data.get("heroes", [])
+        
+        if hero_name:
+            for h in heroes_list:
+                if h.get("hero_name") == hero_name:
+                    player_data = h
+                    break
+        
+        # If no hero specified or not found, use a default fallback (first hero)
+        # but warn that match-level analysis is limited
+        if not player_data and heroes_list:
+            player_data = heroes_list[0]
+            logger.warning(f"Analysis for {hero_name} requested but not found. Falling back to {player_data.get('hero_name')}")
+        elif not player_data:
+            # Create a minimal structure if somehow heroes list is empty
+            player_data = parsed_data
+            
+        # Ensure duration_minutes is globally available to calculators
+        duration = parsed_data.get("duration_minutes", 30)
+        player_data["duration_minutes"] = duration
+        
         metrics = {}
         
-        # Calculate all 60+ metrics by category
-        metrics["basic"] = self.calculate_gpm_xpm(parsed_data)
-        metrics["positioning"] = self.calculate_positioning_risk(parsed_data)
-        metrics["fighting"] = self.calculate_teamfight_stats(parsed_data)
-        metrics["timing"] = self.calculate_item_efficiency(parsed_data)
-        metrics["warding"] = self.calculate_warding_value(parsed_data)
-        metrics["lane_phase"] = self.calculate_lane_metrics(parsed_data)
-        metrics["mid_game"] = self.calculate_midgame_metrics(parsed_data)
-        metrics["mid_game"] = self.calculate_midgame_metrics(parsed_data)
-        metrics["late_game"] = self.calculate_lategame_metrics(parsed_data)
+        # Calculate all 60+ metrics by category using the isolated player_data
+        metrics["basic"] = self.calculate_gpm_xpm(player_data)
+        metrics["positioning"] = self.calculate_positioning_risk(player_data)
+        metrics["fighting"] = self.calculate_teamfight_stats(player_data)
+        metrics["timing"] = self.calculate_item_efficiency(player_data)
+        metrics["warding"] = self.calculate_warding_value(player_data)
+        metrics["lane_phase"] = self.calculate_lane_metrics(player_data)
+        metrics["mid_game"] = self.calculate_midgame_metrics(player_data)
+        metrics["late_game"] = self.calculate_lategame_metrics(player_data)
         
         # Flatten metrics for storage
         flat_metrics = self._flatten_metrics(metrics)
-        flat_metrics["position"] = parsed_data.get("position")
+        flat_metrics["position"] = player_data.get("position")
         
         # Compare with benchmarks
-        hero_name = parsed_data.get("hero_name", "")
-        benchmark_comparison = self.compare_with_benchmark(flat_metrics, hero_name)
+        active_hero = player_data.get("hero_name", hero_name or "")
+        benchmark_comparison = self.compare_with_benchmark(flat_metrics, active_hero)
         flat_metrics["benchmark_comparison"] = benchmark_comparison
         
         # Generate advice
@@ -66,20 +89,11 @@ class MatchAnalyzer:
         weaknesses = self._identify_weaknesses(flat_metrics, benchmark_comparison)
         
         # Power spikes and mistakes
-        power_spikes = self._analyze_power_spikes(flat_metrics, parsed_data)
-        mistakes = self._detect_mistakes(flat_metrics, parsed_data)
+        power_spikes = self._analyze_power_spikes(flat_metrics, player_data)
+        mistakes = self._detect_mistakes(flat_metrics, player_data)
         
         # Pro Benchmarks
-        hero_id = parsed_data.get("hero_id")
-        if not hero_id and "full_data" in parsed_data:
-             hero_id = parsed_data["full_data"].get("hero_id")
-             
-        # Resolve from name if still None
-        if not hero_id:
-             # Very basic fallback for standard heroes
-             hero_id = 1 # Default to Anti-Mage if unknown for benchmark purposes
-             
-        duration = max(parsed_data.get("duration_minutes", 1), 1)
+        hero_id = player_data.get("hero_id")
         benchmarks = benchmark_service.get_hero_benchmarks_sync(hero_id)
         pro_gpm = benchmark_service.get_benchmark_for_metric(benchmarks, "gold_per_min", "75")
         pro_xpm = benchmark_service.get_benchmark_for_metric(benchmarks, "xp_per_min", "75")
@@ -115,8 +129,8 @@ class MatchAnalyzer:
         
         full_data = data.get("full_data", {})
         
-        gpm = data.get("gpm", 0)
-        xpm = data.get("xpm", 0)
+        gpm = data.get("gpm") or data.get("gold_per_min", 0)
+        xpm = data.get("xpm") or data.get("xp_per_min", 0)
         last_hits = data.get("last_hits", 0)
         denies = data.get("denies", 0)
         hero_damage = data.get("hero_damage", 0)
@@ -160,45 +174,61 @@ class MatchAnalyzer:
     # POSITIONING METRICS (8)
     # =========================================================================
     def calculate_positioning_risk(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Calculate positioning metrics (8 total) from coordinate data."""
+        """
+        Calculate positioning from available hero data.
+        
+        Available: data["position"] = "Safe Lane" (string)
+        NOT available: coordinate time-series (usually)
+        
+        Workaround: Use position string + deaths to infer safety
+        """
         full_data = data.get("full_data", {})
-        positions = full_data.get("positions", []) # List of {time, x, y}
+        positions = full_data.get("positions", [])
         
-        if not positions:
+        # If we actually HAVE coordinate data, use the advanced logic
+        if positions:
+            danger_ticks = 0
+            total_dist = 0
+            for pos in positions:
+                x, y = pos.get("x", 0), pos.get("y", 0)
+                dist_from_origin = (x**2 + y**2)**0.5
+                total_dist += dist_from_origin
+                if dist_from_origin > 3000:
+                    danger_ticks += 1
+            danger_zone_pct = round((danger_ticks / len(positions)) * 100, 1)
+            avg_dist = round(total_dist / len(positions), 0)
             return {
-                "avg_distance_from_team": 0,
-                "danger_zone_pct": 0,
-                "farming_time_pct": 0,
-                "movement_speed_avg": 0,
-                "position_safety_score": 50,
-                "farm_location_diversity": 0,
-                "objective_proximity": 0,
-                "tower_proximity_score": 0
+                "avg_distance_from_team": avg_dist / 10,
+                "danger_zone_pct": danger_zone_pct,
+                "position_safety_score": max(0, 100 - danger_zone_pct),
+                "farming_time_pct": (data.get("last_hits", 0) * 100) / max(data.get("net_worth", 1), 1)
             }
+
+        # FALLBACK: Heuristic based on position string and deaths
+        position = data.get("position", "unknown")
+        deaths = data.get("deaths", 0)
         
-        # Calculate Danger Zone (proximity to enemies when no allies are near)
-        # For simplicity in this heuristic, we'll use a score based on distance from base
-        danger_ticks = 0
-        total_dist = 0
-        for pos in positions:
-            x, y = pos.get("x", 0), pos.get("y", 0)
-            dist_from_origin = (x**2 + y**2)**0.5
-            total_dist += dist_from_origin
-            if dist_from_origin > 3000: # Deep in enemy territory
-                danger_ticks += 1
-                
-        danger_zone_pct = round((danger_ticks / len(positions)) * 100, 1)
-        avg_dist = round(total_dist / len(positions), 0)
+        # Infer position safety from string
+        safety_map = {
+            "Hard Support": 80,    # Stays close to base/allies
+            "Soft Support": 70,
+            "Safe Lane": 65,       # Should be protected but targets
+            "Mid Lane": 40,        # Centrally exposed
+            "Off Lane": 35,        # Typically dangerous lane
+            "Jungle": 55,
+            "Roaming": 25          # Always in depth
+        }
+        
+        base_safety = safety_map.get(position, 50)
+        # Penalize deaths heavily for positioning score
+        safety_adjusted = base_safety - (deaths * 4)
+        danger_zone_pct = 100 - max(0, min(100, safety_adjusted))
         
         return {
-            "avg_distance_from_team": avg_dist / 10, # Scaled
+            "avg_distance_from_team": 0,
             "danger_zone_pct": danger_zone_pct,
-            "farming_time_pct": 0,
-            "movement_speed_avg": 0,
-            "position_safety_score": max(0, 100 - danger_zone_pct),
-            "farm_location_diversity": 0,
-            "objective_proximity": 0,
-            "tower_proximity_score": 0
+            "position_safety_score": max(0, min(100, safety_adjusted)),
+            "farming_time_pct": (data.get("last_hits", 0) * 1.5) # Rough estimate
         }
     
     # =========================================================================
@@ -307,29 +337,70 @@ class MatchAnalyzer:
     # LANE PHASE METRICS (0-10 min) (6)
     # =========================================================================
     def calculate_lane_metrics(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Calculate lane phase metrics 0-10 min (6 total)."""
+        """
+        Calculate lane phase metrics (0-10 min) from available hero data.
+        """
         full_data = data.get("full_data", {})
         
-        # Time series data from Clarity
-        lh_t = full_data.get("last_hits_t", [])
-        gold_t = full_data.get("gold_t", [])
-        xp_t = full_data.get("xp_t", [])
+        # 1. Check for real time-series data first
+        lh_t = full_data.get("last_hits_t") or data.get("last_hits_t")
+        gold_t = full_data.get("gold_t") or data.get("gold_t")
+        duration = data.get("duration_minutes", 30)
         
-        # Safe extraction at 10m mark (600s or index 10 if per-minute)
-        idx_10 = 10 if len(lh_t) < 120 else 600
+        if lh_t and len(lh_t) > 10:
+            idx = 10 if len(lh_t) < 120 else 600
+            return {
+                "lh_at_10": lh_t[idx] if len(lh_t) > idx else lh_t[-1],
+                "gold_at_10": gold_t[idx] if gold_t and len(gold_t) > idx else 0,
+                "xp_at_10": 0,  # XP usually missing from simple arrays
+                "deaths_in_lane": full_data.get("deaths_10min", 0),
+                "lane_control_pct": 0
+            }
+
+        # 2. FALLBACK: Estimation heuristics
+        # Actual hero stats
+        total_lh = data.get("last_hits", 0)
+        total_gold = data.get("net_worth") or (data.get("gold_per_min", 300) * duration)
         
-        lh_10 = lh_t[idx_10] if len(lh_t) > idx_10 else data.get("lh_at_10", 0)
-        gold_10 = gold_t[idx_10] if len(gold_t) > idx_10 else 0
-        xp_10 = xp_t[idx_10] if len(xp_t) > idx_10 else 0
+        # Estimation Logic:
+        # Core heroes get ~30% of their total LH by 10 min in long games, more in short games.
+        # Support heroes get much less.
+        position = str(data.get("position") or "").lower()
+        is_core = any(r in position for r in ["safe", "mid", "off", "core", "carry", "1", "2", "3"])
+        
+        lh_multiplier = 0.25 if is_core else 0.1
+        gold_multiplier = 0.2 if is_core else 0.15
+        
+        # Scale by duration - if game is 20 min, 10 min is half the game.
+        # If game is 60 min, 10 min is 1/6th.
+        time_factor = min(1.0, 10 / max(duration, 10))
+        
+        est_lh_10 = total_lh * lh_multiplier / time_factor
+        # Cap at reasonable pro levels
+        est_lh_10 = min(est_lh_10, 85 if is_core else 30)
+        
+        est_gold_10 = total_gold * gold_multiplier / time_factor
+        est_gold_10 = min(est_gold_10, 5000 if is_core else 2500)
         
         return {
-            "lh_at_10": lh_10,
-            "deaths_in_lane": full_data.get("deaths_10min", 0),
-            "gold_at_10": gold_10,
-            "xp_at_10": xp_10,
-            "lane_control_pct": 0,
-            "camps_stacked": data.get("camp_stacking", 0)
+            "lh_at_10": int(est_lh_10),
+            "gold_at_10": int(est_gold_10),
+            "xp_at_10": int(est_gold_10 * 1.1), # Rough XP/Gold correlation in lane
+            "deaths_in_lane": data.get("deaths", 0) // 4, # Rough estimate for lane phase
+            "lane_control_pct": 50
         }
+
+    def _xp_to_level(self, xp: int) -> int:
+        """Convert XP to hero level using standard Dota 2 XP table."""
+        xp_table = {
+            1: 0, 2: 230, 3: 600, 4: 1080, 5: 1680, 6: 2300, 7: 2940, 
+            8: 3600, 9: 4280, 10: 5080, 12: 6720, 15: 9380, 20: 16000, 
+            25: 25000, 30: 35000
+        }
+        for level in sorted(xp_table.keys(), reverse=True):
+            if xp >= xp_table[level]:
+                return level
+        return 1
     
     # =========================================================================
     # MID GAME METRICS (10-25 min) (5)

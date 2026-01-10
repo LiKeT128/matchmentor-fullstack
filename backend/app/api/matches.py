@@ -462,8 +462,8 @@ async def upload_match(
         ).first()
         
         # Analyze match
-        analyzer = MatchAnalyzer()
-        analysis = analyzer.analyze_match(parsed)
+        # Perform initial analysis (broad)
+        analysis = MatchAnalyzer().analyze_match(parsed, hero_name=parsed["hero_name"])
         if "players" in parsed and "heroes" not in parsed:
             parsed["heroes"] = [p.get("hero_name", p.get("hero")) for p in parsed["players"]]
             logger.info(f"Built heroes array: {parsed['heroes']}")
@@ -1361,32 +1361,8 @@ def _select_hero_logic(
         match.selected_at = datetime.utcnow()
         match.hero_name = request.hero_name  # Update primary hero field
         
-        # Re-analyze with the selected player's data
-        analyzer = MatchAnalyzer()
-        
-        # Build analysis input from selected player
-        analysis_input = {
-            "match_id": match.match_id,
-            "duration_minutes": match.duration_minutes,
-            "hero_name": request.hero_name,
-            "result": match.result,
-            "kills": metrics["kills"],
-            "deaths": metrics["deaths"],
-            "assists": metrics["assists"],
-            "gpm": metrics["gpm"],
-            "xpm": metrics["xpm"],
-            "last_hits": metrics["last_hits"],
-            "denies": metrics["denies"],
-            "hero_damage": metrics["hero_damage"],
-            "tower_damage": metrics["tower_damage"],
-            "hero_healing": metrics["hero_healing"],
-            "items": metrics["items"],
-            "item_timings": metrics["item_timings"],
-            "position": metrics.get("position", selected_player.get("position", "unknown")),
-            "full_data": selected_player
-        }
-        
-        analysis = analyzer.analyze_match(analysis_input)
+        # Use the NEW targeted analysis with full parsed_data
+        analysis = analyzer.analyze_match(match.parsed_data, hero_name=request.hero_name)
         
         # Merge analysis metrics with extracted metrics (preserve our TF% and other raw data)
         full_metrics = analysis["metrics"].copy()

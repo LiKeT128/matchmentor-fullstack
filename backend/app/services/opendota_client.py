@@ -110,7 +110,10 @@ class OpenDotaClient:
         hero = HERO_CACHE.get(hero_id)
         if hero:
             return hero.get("name", "unknown")
-        return "unknown"
+        
+        # Fallback to static mapping
+        from app.services.hero_mapping import HERO_MAP
+        return HERO_MAP.get(hero_id, "unknown")
     
     @staticmethod
     def get_hero_display_name(hero_id: int) -> str:
@@ -126,7 +129,11 @@ class OpenDotaClient:
         hero = HERO_CACHE.get(hero_id)
         if hero:
             return hero.get("localized_name", "Unknown")
-        return "Unknown"
+        
+        # Fallback to static mapping (cleanup internally)
+        from app.services.hero_mapping import HERO_MAP
+        raw_name = HERO_MAP.get(hero_id, "Unknown")
+        return raw_name.replace("npc_dota_hero_", "").replace("_", " ").title()
     
     async def get_match(self, match_id: str) -> Dict[str, Any]:
         """
