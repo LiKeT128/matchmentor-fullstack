@@ -32,7 +32,7 @@ class MatchAnalyzer:
             hero_name: npc_dota_hero_* name to isolate.
             
         Returns:
-            Dictionary with metrics, advice, score, strengths, weaknesses.
+            Dictionary with metrics, advice, score, strengths, weaknesses, and game_stages.
         """
         # 1. Isolate the target player data
         player_data = None
@@ -57,6 +57,16 @@ class MatchAnalyzer:
         duration = parsed_data.get("duration_minutes", 30)
         player_data["duration_minutes"] = duration
         
+        # Get hero index and position for laning analysis
+        hero_index = None
+        player_position = "pos1"
+        
+        if hero_name:
+            hero_index = self._get_hero_index(parsed_data, hero_name)
+            if hero_index is not None:
+                player_position = self._get_player_position(parsed_data, hero_index)
+                logger.info(f"[analyze_match] Analyzing {hero_name} (position: {player_position}, index: {hero_index})")
+        
         metrics = {}
         
         # Calculate all 60+ metrics by category using the isolated player_data
@@ -68,6 +78,16 @@ class MatchAnalyzer:
         metrics["lane_phase"] = self.calculate_lane_metrics(player_data)
         metrics["mid_game"] = self.calculate_midgame_metrics(player_data)
         metrics["late_game"] = self.calculate_lategame_metrics(player_data)
+        
+        # === NEW: LANING STAGE ANALYSIS (0-10 min) ===
+        laning_data = {}
+        laning_analysis = {}
+        
+        if hero_name:
+            laning_data = self._extract_laning_stage_data(parsed_data, hero_name)
+            if laning_data:
+                laning_analysis = self._analyze_laning_performance(laning_data, player_position)
+                logger.info(f"[analyze_match] Laning stage analysis: score={laning_analysis.get('laning_score', 0)}")
         
         # Flatten metrics for storage
         flat_metrics = self._flatten_metrics(metrics)
@@ -81,8 +101,17 @@ class MatchAnalyzer:
         # Generate advice
         advice = self.generate_deterministic_advice(flat_metrics, benchmark_comparison)
         
+        # Merge laning advice with general advice
+        if laning_analysis.get("advice"):
+            advice.extend(laning_analysis["advice"])
+        
         # Calculate overall score
         overall_score = self._calculate_overall_score(flat_metrics, benchmark_comparison)
+        
+        # If laning analysis exists, factor it into overall score
+        if laning_analysis.get("laning_score"):
+            # Weight: 60% existing score + 40% laning score
+            overall_score = int(overall_score * 0.6 + laning_analysis["laning_score"] * 0.4)
         
         # Identify strengths and weaknesses
         strengths = self._identify_strengths(flat_metrics, benchmark_comparison)
@@ -92,22 +121,39 @@ class MatchAnalyzer:
         power_spikes = self._analyze_power_spikes(flat_metrics, player_data)
         mistakes = self._detect_mistakes(flat_metrics, player_data)
         
-        # Pro Benchmarks
+        # Pro Benchmarks (keep for backward compatibility)
         hero_id = player_data.get("hero_id")
         benchmarks = benchmark_service.get_hero_benchmarks_sync(hero_id)
         pro_gpm = benchmark_service.get_benchmark_for_metric(benchmarks, "gold_per_min", "75")
         pro_xpm = benchmark_service.get_benchmark_for_metric(benchmarks, "xp_per_min", "75")
         pro_lh = benchmark_service.get_benchmark_for_metric(benchmarks, "last_hits_per_min", "75") * duration
         
+        # Update flat_metrics with pro benchmarks (keeping for backward compatibility)
+        # But now these are NOT hardcoded - they come from benchmark_service or laning_analysis
         flat_metrics.update({
             "pro_avg_gpm": pro_gpm,
             "pro_avg_xpm": pro_xpm,
             "pro_avg_lh": pro_lh,
-            "pro_avg_lh_10": 55, # Standard pro average
-            "pro_avg_vision": 15.5
+            # Use actual laning analysis data instead of hardcoded values
+            "pro_avg_lh_10": laning_analysis.get("comparison", {}).get("expected_lh", 55),
+            "pro_avg_vision": 15.5  # Keep this for now as we don't have vision standards yet
         })
         
-        return {
+        # Build game_stages structure
+        game_stages = {}
+        
+        if laning_data and laning_analysis:
+            game_stages["laning"] = {
+                "duration_min": 10,
+                "data": laning_data,
+                "metrics": laning_analysis.get("metrics", {}),
+                "score": laning_analysis.get("laning_score", 0),
+                "comparison": laning_analysis.get("comparison", {}),
+                "advice": laning_analysis.get("advice", [])
+            }
+        
+        # Prepare response
+        response = {
             "metrics": flat_metrics,
             "advice": advice,
             "overall_score": overall_score,
@@ -116,6 +162,13 @@ class MatchAnalyzer:
             "power_spikes": power_spikes,
             "mistakes": mistakes
         }
+        
+        # Add game_stages if available
+        if game_stages:
+            response["game_stages"] = game_stages
+        
+        return response
+
     
     # =========================================================================
     # BASIC METRICS (10)
@@ -762,3 +815,359 @@ class MatchAnalyzer:
             mistakes.append("Limited vision contribution")
         
         return mistakes
+    
+    # =========================================================================
+    # LANING STAGE ANALYSIS - NEW METHODS
+    # =========================================================================
+    def _get_hero_index(self, parsed_data: Dict[str, Any], hero_name: str) -> Optional[int]:
+        """
+        Find hero's index in parsed_data["heroes"] by matching hero_name.
+        
+        Args:
+            parsed_data: Full match data from parser
+            hero_name: npc_dota_hero_* name to find
+            
+        Returns:
+            Player index (0-9) or None if not found
+        """
+        heroes_list = parsed_data.get("heroes", [])
+        for idx, hero in enumerate(heroes_list):
+            if hero.get("hero_name") == hero_name:
+                return idx
+        return None
+    
+    def _get_player_position(self, parsed_data: Dict[str, Any], hero_index: int) -> str:
+        """
+        Determine player position (pos1-pos5) based on index or parsed data.
+        
+        Args:
+            parsed_data: Full match data
+            hero_index: Player index (0-9)
+            
+        Returns:
+            Position string: pos1, pos2, pos3, pos4, or pos5
+        """
+        try:
+            # Try to get position from heroes list first
+            heroes_list = parsed_data.get("heroes", [])
+            if hero_index < len(heroes_list):
+                position_str = heroes_list[hero_index].get("position", "")
+                
+                # Map position strings to pos1-pos5
+                if "safe" in str(position_str).lower() or "carry" in str(position_str).lower():
+                    return "pos1"
+                elif "mid" in str(position_str).lower():
+                    return "pos2"
+                elif "off" in str(position_str).lower():
+                    return "pos3"
+                elif "soft support" in str(position_str).lower():
+                    return "pos4"
+                elif "hard support" in str(position_str).lower() or "support" in str(position_str).lower():
+                    return "pos5"
+            
+            # Fallback: Use index-based heuristic
+            # Radiant: 0-4, Dire: 5-9
+            # Typical pub order: pos1/2/3 then support
+            local_idx = hero_index % 5
+            
+            if local_idx == 0:
+                return "pos1"  # Safe lane carry
+            elif local_idx == 1:
+                return "pos2"  # Mid
+            elif local_idx == 2:
+                return "pos3"  # Offlane
+            elif local_idx == 3:
+                return "pos4"  # Soft support
+            else:
+                return "pos5"  # Hard support
+        except Exception as e:
+            logger.error(f"Error determining position: {e}")
+            return "pos1"
+    
+    def _calculate_items_value(self, items: List[str]) -> int:
+        """
+        Calculate total gold value of items.
+        
+        Args:
+            items: List of item names
+            
+        Returns:
+            Total gold value
+        """
+        # Simplified item values (common items)
+        item_costs = {
+            "item_tango": 90,
+            "item_clarity": 50,
+            "item_branches": 50,
+            "item_circlet": 155,
+            "item_gauntlets": 150,
+            "item_slippers": 150,
+            "item_mantle": 150,
+            "item_boots": 500,
+            "item_magic_wand": 450,
+            "item_wraith_band": 505,
+            "item_bracer": 505,
+            "item_null_talisman": 505,
+            "item_soul_ring": 770,
+            "item_phase_boots": 1500,
+            "item_power_treads": 1400,
+            "item_arcane_boots": 1400,
+            "item_hand_of_midas": 2200,
+        }
+        
+        total = 0
+        for item in items:
+            total += item_costs.get(item, 0)
+        
+        return total
+    
+    def _extract_laning_stage_data(self, parsed_data: Dict[str, Any], hero_name: str) -> Dict[str, Any]:
+        """
+        Extract REAL laning stage (0-10min) metrics from parsed match data.
+        
+        This function extracts actual values from the parser instead of using constants.
+        Handles both OpenDota API format and Clarity parser format.
+        
+        Args:
+            parsed_data: Full match data from parser or OpenDota
+            hero_name: npc_dota_hero_* name
+            
+        Returns:
+            Dictionary with real laning metrics
+        """
+        try:
+            # Find hero index
+            hero_index = self._get_hero_index(parsed_data, hero_name)
+            if hero_index is None:
+                logger.warning(f"[_extract_laning_stage_data] Hero {hero_name} not found in heroes list")
+                return {}
+            
+            logger.info(f"[_extract_laning_stage_data] Found hero at index {hero_index}")
+            
+            # Try to get data from multiple sources
+            # 1. Check raw players array (OpenDota format)
+            players = parsed_data.get("players", [])
+            
+            if not players or hero_index >= len(players):
+                logger.warning(f"[_extract_laning_stage_data] No players data or invalid index {hero_index}")
+                return {}
+            
+            player = players[hero_index]
+            
+            # CRITICAL: Extract REAL values from different data structures
+            # OpenDota stores lh_at_10 in benchmarks.lhten.raw
+            gold_10 = 0
+            xp_10 = 0
+            lh_10 = 0
+            
+            # Method 1: OpenDota benchmarks format
+            benchmarks = player.get("benchmarks", {})
+            if benchmarks:
+                lhten_data = benchmarks.get("lhten", {})
+                if lhten_data:
+                    lh_10 = lhten_data.get("raw", 0)
+                    logger.info(f"[_extract_laning_stage_data] Found lh_10 from OpenDota benchmarks: {lh_10}")
+                
+                # OpenDota also has gold_t and xp_t arrays
+                gold_t = player.get("gold_t", [])
+                xp_t = player.get("xp_t", [])
+                
+                # Gold and XP at 10 minutes (index 10 for minute 10)
+                if gold_t and len(gold_t) > 10:
+                    gold_10 = gold_t[10]
+                    logger.info(f"[_extract_laning_stage_data] Found gold_10 from gold_t array: {gold_10}")
+                
+                if xp_t and len(xp_t) > 10:
+                    xp_10 = xp_t[10]
+                    logger.info(f"[_extract_laning_stage_data] Found xp_10 from xp_t array: {xp_10}")
+            
+            # Method 2: Direct fields (Clarity parser format)
+            if not lh_10:
+                lh_10 = player.get("lh_10") or player.get("last_hits_10") or player.get("lh_at_10") or 0
+            if not gold_10:
+                gold_10 = player.get("gold_at_10") or player.get("gold_10") or 0
+            if not xp_10:
+                xp_10 = player.get("xp_at_10") or player.get("xp_10") or 0
+            
+            # Method 3: Estimate from total stats if no 10-minute data available
+            if lh_10 == 0 and gold_10 == 0:
+                logger.warning(f"[_extract_laning_stage_data] No 10-minute data found, estimating from total stats")
+                total_lh = player.get("last_hits", 0)
+                total_gpm = player.get("gold_per_min", 0)
+                total_xpm = player.get("xp_per_min", 0)
+                
+                # Estimate based on position
+                heroes_list = parsed_data.get("heroes", [])
+                position = heroes_list[hero_index].get("position", "") if hero_index < len(heroes_list) else ""
+                
+                is_core = any(x in str(position).lower() for x in ["safe", "mid", "off", "carry"])
+                
+                # Cores typically get 25-30% of their total LH in first 10min
+                # Supports get 10-15%
+                lh_multiplier = 0.28 if is_core else 0.12
+                lh_10 = int(total_lh * lh_multiplier)
+                
+                # Estimate gold and XP from GPM/XPM
+                gold_10 = int(total_gpm * 10)
+                xp_10 = int(total_xpm * 10)
+                
+                logger.info(f"[_extract_laning_stage_data] Estimated: lh_10={lh_10}, gold_10={gold_10}, xp_10={xp_10}")
+           
+            logger.info(f"[_extract_laning_stage_data] Hero: {hero_name}, gold_10={gold_10}, xp_10={xp_10}, lh_10={lh_10}")
+            
+            # Calculate rates
+            gpm_10m = (gold_10 / 10.0) if gold_10 > 0 else 0
+            xpm_10m = (xp_10 / 10.0) if xp_10 > 0 else 0
+            cspm_10m = (lh_10 / 10.0) if lh_10 > 0 else 0
+            
+            # Count deaths in laning phase (0-600 seconds)
+            deaths_laning = 0
+            
+            # Check for deaths_t array (time-series deaths)
+            deaths_t = player.get("deaths_t", [])
+            if deaths_t:
+                for death_time in deaths_t:
+                    if death_time <= 600:  # 10 minutes in seconds
+                        deaths_laning += 1
+            else:
+                # Fallback: estimate from total deaths
+                total_deaths = player.get("deaths", 0)
+                deaths_laning = total_deaths // 4  # Rough estimate
+            
+            # Get level at 10 minutes
+            level_at_10m = 0
+            
+            # Check for level_t array
+            level_t = player.get("level_t", [])
+            if level_t and len(level_t) > 10:
+                level_at_10m = level_t[10]
+            elif xp_10 > 0:
+                level_at_10m = self._xp_to_level(xp_10)
+            
+            # Get items at 10 minutes
+            items_at_10m = player.get("items_at_10m", []) or []
+            
+            # Calculate networth (gold + items value)
+            networth_10m = gold_10 + self._calculate_items_value(items_at_10m)
+            
+            result = {
+                "gold_at_10": gold_10,
+                "xp_at_10": xp_10,
+                "last_hits_at_10": lh_10,
+                "gpm_10m": round(gpm_10m, 2),
+                "xpm_10m": round(xpm_10m, 2),
+                "cspm_10m": round(cspm_10m, 2),
+                "deaths_laning": deaths_laning,
+                "hero_level_at_10m": level_at_10m,
+                "items_at_10m": items_at_10m,
+                "networth_at_10m": networth_10m
+            }
+            
+            logger.info(f"[_extract_laning_stage_data] EXTRACTED: {result}")
+            return result
+        
+        except Exception as e:
+            logger.error(f"[_extract_laning_stage_data] ERROR: {str(e)}", exc_info=True)
+            return {}
+
+    
+    def _analyze_laning_performance(self, laning_data: Dict[str, Any], player_position: str) -> Dict[str, Any]:
+        """
+        Compare laning stage performance against professional standards.
+        
+        Args:
+            laning_data: Extracted laning metrics
+            player_position: pos1, pos2, pos3, pos4, or pos5
+            
+        Returns:
+            Dictionary with scores, comparison, and advice
+        """
+        # PRO STANDARDS by position
+        PRO_STANDARDS = {
+            "pos1": {"lh_10": 55, "gpm_10m": 450, "xpm_10m": 650},
+            "pos2": {"lh_10": 45, "gpm_10m": 400, "xpm_10m": 620},
+            "pos3": {"lh_10": 30, "gpm_10m": 350, "xpm_10m": 600},
+            "pos4": {"lh_10": 15, "gpm_10m": 200, "xpm_10m": 550},
+            "pos5": {"lh_10": 10, "gpm_10m": 150, "xpm_10m": 500},
+        }
+        
+        standards = PRO_STANDARDS.get(player_position, PRO_STANDARDS["pos1"])
+        
+        actual_lh = laning_data.get("last_hits_at_10", 0)
+        actual_gpm = laning_data.get("gpm_10m", 0)
+        actual_deaths = laning_data.get("deaths_laning", 0)
+        
+        expected_lh = standards["lh_10"]
+        expected_gpm = standards["gpm_10m"]
+        
+        # Calculate scores
+        cs_ratio = actual_lh / expected_lh if expected_lh > 0 else 0
+        gpm_ratio = actual_gpm / expected_gpm if expected_gpm > 0 else 0
+        
+        cs_score = min(100, int(cs_ratio * 100))
+        gpm_score = min(100, int(gpm_ratio * 100))
+        survival_score = 100 if actual_deaths == 0 else max(0, 100 - (actual_deaths * 25))
+        
+        laning_score = (cs_score + gpm_score + survival_score) / 3
+        
+        advice = []
+        
+        # Advice on CS
+        if actual_lh < expected_lh * 0.7:
+            advice.append({
+                "category": "cs",
+                "priority": "HIGH",
+                "title": "Last Hits Too Low",
+                "message": f"Last hits за 10м: {actual_lh} vs ожидается {expected_lh}. Работай над паттернами ласта."
+            })
+        
+        # Advice on survival
+        if actual_deaths > 1:
+            advice.append({
+                "category": "survival",
+                "priority": "HIGH",
+                "title": "Too Many Deaths",
+                "message": f"Умер {actual_deaths} раз на лайнинге. Фокусируйся на позиционировании."
+            })
+        elif actual_deaths == 1:
+            advice.append({
+                "category": "survival",
+                "priority": "MEDIUM",
+                "title": "Avoid Deaths",
+                "message": "1 смерть на лайнинге. Будь осторожнее с позицией."
+            })
+        
+        # Advice on economy
+        if actual_gpm < expected_gpm * 0.8:
+            advice.append({
+                "category": "farm",
+                "priority": "MEDIUM",
+                "title": "Farm Efficiency",
+                "message": f"GPM: {actual_gpm:.0f}/min vs {expected_gpm}. Улучши экономику фарма."
+            })
+        
+        # Positive feedback
+        if actual_lh >= expected_lh * 1.1:
+            advice.append({
+                "category": "cs",
+                "priority": "POSITIVE",
+                "title": "Great CS!",
+                "message": f"Отличный ласт: {actual_lh} хитов за 10м (+{int((cs_ratio-1)*100)}% от нормы)!"
+            })
+        
+        return {
+            "metrics": {
+                "cs_score": cs_score,
+                "gpm_score": gpm_score,
+                "survival_score": survival_score
+            },
+            "advice": advice,
+            "laning_score": round(laning_score, 1),
+            "comparison": {
+                "actual_lh": actual_lh,
+                "expected_lh": expected_lh,
+                "actual_gpm": round(actual_gpm, 1),
+                "expected_gpm": expected_gpm,
+                "deaths": actual_deaths
+            }
+        }
