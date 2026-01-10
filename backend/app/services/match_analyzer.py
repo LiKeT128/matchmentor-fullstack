@@ -84,13 +84,27 @@ class MatchAnalyzer:
         # === NEW: LANING STAGE ANALYSIS using LaningStageExtractor ===
         laning_result = None
         
+        logger.info(f"[ANALYZE_MATCH_START] hero_name={hero_name}, hero_index={hero_index}")
+        logger.debug(f"[PARSED_DATA_STRUCTURE] keys={list(parsed_data.keys())}")
+        
         try:
             if hero_index is not None:
                 # Get player data for extraction
                 players = parsed_data.get('players', [])
+                logger.debug(f"[PLAYERS_ARRAY] Found {len(players)} players in parsed_data")
+                
                 if hero_index < len(players):
                     player_data_for_extraction = players[hero_index]
-                    position = get_position(player_data_for_extraction.get('player_slot', hero_index))
+                    player_slot = player_data_for_extraction.get('player_slot', hero_index)
+                    position = get_position(player_slot)
+                    
+                    logger.info(
+                        f"[PLAYER_DATA_EXTRACTED] player_slot={player_slot}, position={position}, "
+                        f"hero={player_data_for_extraction.get('hero', 'unknown')}"
+                    )
+                    logger.debug(
+                        f"[PLAYER_DATA_FIELDS] keys={list(player_data_for_extraction.keys())[:20]}..."
+                    )
                     
                     # Extract laning stage using new extractor
                     laning_extractor = LaningStageExtractor(player_data_for_extraction, position)
@@ -331,18 +345,36 @@ class MatchAnalyzer:
         assists = data.get("assists", 0)
         deaths = max(data.get("deaths", 1), 1)
         
-        # Calculate Participation
+        # Calculate Participation - FIXED: Cap at 100% max
         radiant_win = data.get("radiant_win")
         is_radiant = data.get("team") == "radiant"
         team_score = data.get("radiant_score", 0) if is_radiant else data.get("dire_score", 0)
         
-        tf_participation = round(((kills + assists) / max(team_score, 1)) * 100, 1)
+        # FIX: Participation should be (kills+assists) / total_team_kills, capped at 100%
+        if team_score > 0:
+            tf_participation = min(round(((kills + assists) / team_score) * 100, 1), 100.0)
+        else:
+            tf_participation = 0.0
+        
+        logger.debug(
+            f"[TEAMFIGHT_CALC] kills={kills}, assists={assists}, team_score={team_score}, "
+            f"participation={tf_participation}% (capped at 100%)"
+        )
+        
+        # Extract actual hero damage from parsed data
+        hero_damage = data.get("hero_damage") or full_data.get("hero_damage", 0)
+        fight_damage = int(hero_damage * 0.7) if hero_damage else 0  # Estimate 70% in fights
+        
+        logger.debug(
+            f"[TEAMFIGHT_METRICS] hero_damage={hero_damage} (from data), "
+            f"fight_damage={fight_damage} (estimated)"
+        )
         
         return {
             "teamfight_participation": tf_participation,
             "fight_kills_ratio": round(kills / max(kills + assists, 1), 2),
-            "fight_deaths_ratio": 0.5, # Placeholder
-            "fight_damage": data.get("hero_damage", 0) * 0.7, # Estimate fight damage
+            "fight_deaths_ratio": round(deaths / max(kills + deaths, 1), 2),
+            "fight_damage": fight_damage,
             "stun_duration_total": round(data.get("stuns", 0) or full_data.get("stuns", 0), 1),
             "disable_rate": 0,
             "last_hit_steal_pct": 0,
@@ -436,6 +468,7 @@ class MatchAnalyzer:
         duration = data.get("duration_minutes", 30)
         
         if lh_t and len(lh_t) > 10:
+            logger.debug("[LANE_METRICS] Found real time-series data")
             idx = 10 if len(lh_t) < 120 else 600
             return {
                 "lh_at_10": lh_t[idx] if len(lh_t) > idx else lh_t[-1],
@@ -445,7 +478,21 @@ class MatchAnalyzer:
                 "lane_control_pct": 0
             }
 
-        # 2. FALLBACK: Estimation heuristics
+        # 2. Check for OpenDota benchmarks (LaningStageExtractor logic is preferred, but this is a fallback)
+        benchmarks = data.get("benchmarks", {})
+        if "lhten" in benchmarks:
+             logger.debug("[LANE_METRICS] Found OpenDota benchmarks")
+             return {
+                "lh_at_10": benchmarks["lhten"].get("raw", 0),
+                "gold_at_10": int(data.get("gold_per_min", 0) * 10), # Estimate from GPM if no gold_t
+                "xp_at_10": int(data.get("xp_per_min", 0) * 10),
+                "deaths_in_lane": 0, # Cannot get from benchmarks
+                "lane_control_pct": 50
+             }
+
+        # 3. FALLBACK: Estimation heuristics
+        logger.warning("[LANE_METRICS] No real laning data found. Using ESTIMATES.")
+        
         # Actual hero stats
         total_lh = data.get("last_hits", 0)
         total_gold = data.get("net_worth") or (data.get("gold_per_min", 300) * duration)
@@ -873,48 +920,67 @@ class MatchAnalyzer:
     
     def _get_player_position(self, parsed_data: Dict[str, Any], hero_index: int) -> str:
         """
-        Determine player position (pos1-pos5) based on index or parsed data.
-        
-        Args:
-            parsed_data: Full match data
-            hero_index: Player index (0-9)
-            
-        Returns:
-            Position string: pos1, pos2, pos3, pos4, or pos5
+        Determine player position (pos1-pos5) based on parsed data (PREFERRED) or index.
         """
         try:
-            # Try to get position from heroes list first
+            # 1. Try to get from specific player data first
+            players = parsed_data.get("players", [])
+            if hero_index < len(players):
+                p = players[hero_index]
+                
+                # Check for explicit 'position' field (Clarity/OpenDota sometimes has it)
+                if "position" in p:
+                    pos_val = p["position"]
+                    logger.debug(f"[POS_EXTRACT] Found explicit 'position' field: {pos_val}")
+                    # Handle "pos1", 1, "SAFE LANE", etc.
+                    if str(pos_val).lower().startswith("pos"):
+                        return str(pos_val).lower()
+                    if str(pos_val).isdigit() and 1 <= int(pos_val) <= 5:
+                        return f"pos{pos_val}"
+                
+                # Check for 'lane' and 'lane_role' (OpenDota standard)
+                # lane: 1=Safe, 2=Mid, 3=Off
+                # lane_role: 1=Core, 2=Support (Approximate)
+                if "lane" in p:
+                    lane = p.get("lane")
+                    role = p.get("lane_role") 
+                    
+                    logger.debug(f"[POS_EXTRACT] Found 'lane': {lane}, 'lane_role': {role}")
+                    
+                    # Mid lane is easiest
+                    if lane == 2:
+                        return "pos2"
+                    
+                    # Safe lane (1)
+                    if lane == 1:
+                        # If meaningful role/gold distinction exists, use it. 
+                        # Else assume Core (1) if GPM is high? No, avoid pure GPM guessing if possible.
+                        # Check benchmarks/lh
+                        return "pos1" if p.get("last_hits", 0) > 50 else "pos5" # Heuristic refinement only if needed
+                    
+                    # Off lane (3)
+                    if lane == 3:
+                        return "pos3" if p.get("last_hits", 0) > 50 else "pos4"
+
+            # 2. Try hero role mapping if available (Fallback)
             heroes_list = parsed_data.get("heroes", [])
             if hero_index < len(heroes_list):
                 position_str = heroes_list[hero_index].get("position", "")
-                
-                # Map position strings to pos1-pos5
-                if "safe" in str(position_str).lower() or "carry" in str(position_str).lower():
-                    return "pos1"
-                elif "mid" in str(position_str).lower():
-                    return "pos2"
-                elif "off" in str(position_str).lower():
-                    return "pos3"
-                elif "soft support" in str(position_str).lower():
-                    return "pos4"
-                elif "hard support" in str(position_str).lower() or "support" in str(position_str).lower():
-                    return "pos5"
-            
-            # Fallback: Use index-based heuristic
-            # Radiant: 0-4, Dire: 5-9
-            # Typical pub order: pos1/2/3 then support
+                if position_str:
+                    logger.debug(f"[POS_EXTRACT] Using hero list position: {position_str}")
+                    if "safe" in str(position_str).lower(): return "pos1"
+                    if "mid" in str(position_str).lower(): return "pos2"
+                    if "off" in str(position_str).lower(): return "pos3"
+                    if "soft" in str(position_str).lower(): return "pos4"
+                    if "hard" in str(position_str).lower(): return "pos5"
+
+            # 3. Fallback: Index-based heuristic (Last Resort)
             local_idx = hero_index % 5
+            logger.warning(f"[POS_EXTRACT] Using index heuristic for hero_index {hero_index} -> {local_idx}")
             
-            if local_idx == 0:
-                return "pos1"  # Safe lane carry
-            elif local_idx == 1:
-                return "pos2"  # Mid
-            elif local_idx == 2:
-                return "pos3"  # Offlane
-            elif local_idx == 3:
-                return "pos4"  # Soft support
-            else:
-                return "pos5"  # Hard support
+            mapping = {0: "pos1", 1: "pos2", 2: "pos3", 3: "pos4", 4: "pos5"}
+            return mapping.get(local_idx, "pos1")
+
         except Exception as e:
             logger.error(f"Error determining position: {e}")
             return "pos1"

@@ -19,6 +19,28 @@ interface HeroSelectionModalProps {
     loading?: boolean;
 }
 
+const HERO_IMAGE_FIXES: Record<string, string> = {
+    "zuus": "zeus",
+    "treant": "treant_protector",
+    "nevermore": "shadow_fiend",
+    "windrunner": "windranger",
+    "necrolyte": "necrophos",
+    "skeleton_king": "wraith_king",
+    "rattletrap": "clockwerk",
+    "shredder": "timbersaw",
+    "doom_bringer": "doom",
+    "obsidian_destroyer": "outworld_destroyer",
+    "magnataur": "magnus",
+    "wisp": "io",
+    "queenofpain": "queen_of_pain",
+    "vengefulspirit": "vengeful_spirit"
+};
+
+const getHeroImageName = (heroName: string): string => {
+    const shortName = heroName.replace('npc_dota_hero_', '');
+    return HERO_IMAGE_FIXES[shortName] || shortName;
+};
+
 export const HeroSelectionModal: React.FC<HeroSelectionModalProps> = ({
     match_id,
     heroes,
@@ -58,7 +80,7 @@ export const HeroSelectionModal: React.FC<HeroSelectionModalProps> = ({
                         <h3 className={styles.radiant}>☀️ RADIANT</h3>
                         <div className={styles.heroList}>
                             {radiantHeroes.map(hero => {
-                                const heroShortName = hero.hero_name.replace('npc_dota_hero_', '');
+                                const heroImageName = getHeroImageName(hero.hero_name);
 
                                 return (
                                     <button
@@ -69,7 +91,7 @@ export const HeroSelectionModal: React.FC<HeroSelectionModalProps> = ({
                                         title={`${hero.hero_display_name} (${hero.position})`}
                                     >
                                         <img
-                                            src={`https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/heroes/${heroShortName}.png`}
+                                            src={`https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/heroes/${heroImageName}.png`}
                                             alt={hero.hero_display_name}
                                             className={styles.heroImage}
                                             onError={(e) => {
@@ -97,7 +119,7 @@ export const HeroSelectionModal: React.FC<HeroSelectionModalProps> = ({
                         <h3 className={styles.dire}>🔴 DIRE</h3>
                         <div className={styles.heroList}>
                             {direHeroes.map(hero => {
-                                const heroShortName = hero.hero_name.replace('npc_dota_hero_', '');
+                                const heroImageName = getHeroImageName(hero.hero_name);
 
                                 return (
                                     <button
@@ -108,7 +130,7 @@ export const HeroSelectionModal: React.FC<HeroSelectionModalProps> = ({
                                         title={`${hero.hero_display_name} (${hero.position})`}
                                     >
                                         <img
-                                            src={`https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/heroes/${heroShortName}.png`}
+                                            src={`https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/heroes/${heroImageName}.png`}
                                             alt={hero.hero_display_name}
                                             className={styles.heroImage}
                                             onError={(e) => {
