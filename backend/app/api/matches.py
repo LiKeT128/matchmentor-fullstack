@@ -1208,210 +1208,113 @@ def _select_hero_logic(
         # Our internal parser fields are gpm, xpm, last_hits, denies.
         
         # Try to get metrics from standard keys, then OpenDota keys
-        gpm = selected_player.get("gpm") or selected_player.get("gold_per_min", 0)
-        xpm = selected_player.get("xpm") or selected_player.get("xp_per_min", 0)
-        last_hits = selected_player.get("last_hits", 0)
-        denies = selected_player.get("denies", 0)
         
-        kills = selected_player.get("kills", 0)
-        deaths = selected_player.get("deaths", 0)
-        assists = selected_player.get("assists", 0)
+        if not hero_found:
+            available_heroes = [h.get("hero_name", "unknown") for h in heroes_list]
+            logger.error(f"[select_hero] HERO_VALIDATION FAILED: Hero '{request.hero_name}' not in match. Available: {available_heroes}")
+            raise ValueError(f"Hero '{request.hero_name}' not found in this match. Available heroes: {', '.join(available_heroes)}")
         
-        # Calculate KDA
-        if deaths == 0:
-            kda = kills + assists
-        else:
-            kda = round((kills + assists) / deaths, 2)
-
-        # Calculate Teamfight Participation
-        radiant_score = match.parsed_data.get("radiant_score", 0)
-        dire_score = match.parsed_data.get("dire_score", 0)
+        # STEP 6: Initialize MatchAnalyzer
+        logger.info(f"[select_hero] ANALYZER_INIT: Creating MatchAnalyzer instance...")
         
-        # OpenDota often puts isRadiant in player object, otherwise infer from slot
-        is_radiant = selected_player.get("isRadiant")
-        if is_radiant is None:
-            # Fallback: slots 0-127 are Radiant
-            slot = selected_player.get("player_id", 0) # sometimes player_id is slot index 0-9
-            # Wait, normalize_match_data sets player_id=idx (0-9). 
-            # Slots are 0-4 (Rad), 128-132 (Dire). 
-            # In normalize: 0-4 is Radiant.
-            slot = selected_player.get("player_id", 0)
-            is_radiant = slot < 5
+        try:
+            analyzer = MatchAnalyzer()
+            logger.info(f"[select_hero] ANALYZER_INIT OK: MatchAnalyzer created successfully")
+        except Exception as e:
+            logger.error(f"[select_hero] ANALYZER_INIT FAILED: {str(e)}", exc_info=True)
+            raise ValueError(f"Failed to initialize analyzer: {str(e)}")
+        
+        # STEP 7: Call analyze_match() for the selected hero
+        logger.info(f"[select_hero] ANALYZE_CALL: Calling analyze_match() for hero='{request.hero_name}'...")
+        
+        try:
+            analysis = analyzer.analyze_match(parsed_data, hero_name=request.hero_name)
             
-        team_kills = radiant_score if is_radiant else dire_score
-        if team_kills > 0:
-            tf_participation = round(((kills + assists) / team_kills) * 100, 1)
-        else:
-            tf_participation = 0.0
+            metrics = analysis.get("metrics", {})
+            metrics_keys = list(metrics.keys())
+            advice = analysis.get("advice", [])
+            overall_score = analysis.get("overall_score", 0)
             
-        metrics = {
-            # Basic stats
-            "kills": kills,
-            "deaths": deaths,
-            "assists": assists,
-            "kda": kda,
-            "teamfight_participation": tf_participation,
+            logger.info(f"[select_hero] ANALYZE_RESULT OK: Got metrics with keys={metrics_keys[:10]}..., advice_count={len(advice)}, score={overall_score}")
+        except Exception as e:
+            logger.error(f"[select_hero] ANALYZE_CALL FAILED: {str(e)}", exc_info=True)
+            raise ValueError(f"Failed to analyze match: {str(e)}")
+        
+        # STEP 9: Update match record
+        logger.info(f"[select_hero] DB_UPDATE: Updating match record in database...")
+        
+        try:
+            match.selected_hero_name = request.hero_name
+            match.selected_at = datetime.utcnow()
+            match.hero_name = request.hero_name
             
-            # Farming
-            "gpm": gpm,
-            "xpm": xpm,
-            "last_hits": last_hits,
-            "denies": denies,
+            # Store as dicts for SQLAlchemy JSON compatibility
+            match.metrics = metrics
+            match.advice = advice
             
-            # Damage
-            "hero_damage": selected_player.get("hero_damage", 0),
-            "tower_damage": selected_player.get("tower_damage", 0),
-            "hero_healing": selected_player.get("hero_healing", 0),
+            # Explicitly mark as modified for JSON update tracking
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(match, "metrics")
+            flag_modified(match, "advice")
             
-            # Advanced (Calculated)
-            "damage_ratio": 0.0,
-            "gold_efficiency": 0.0,
-            "lane_efficiency": selected_player.get("lane_efficiency_pct", round(last_hits / (match.duration_minutes if match.duration_minutes > 0 else 30) * 10, 1)), 
-            
-            # New Metrics requested by user
-            "vision_score": selected_player.get("vision_score") or (selected_player.get("obs_placed", 0) * 1.5 + selected_player.get("sen_placed", 0) * 1.5),
-            "stuns": round(selected_player.get("stuns", 0), 1),
-            "position_safety": max(0, 100 - (deaths * 5)), # Heuristic Survival Rating
-            "camp_stacking": selected_player.get("camps_stacked", 0),
-            
-            # Lists
-            "strengths": [],
-            "weaknesses": [],
-            "power_spikes": [],
-            "mistakes": [],
-            
-            # Items
-            "items": selected_player.get("items", []),
-            "item_timings": selected_player.get("item_timings", {})
+            logger.info(f"[select_hero] DB_UPDATE OK: Match record updated in memory")
+        except Exception as e:
+            logger.error(f"[select_hero] DB_UPDATE FAILED: {str(e)}", exc_info=True)
+            raise ValueError(f"Failed to update match record: {str(e)}")
+        
+        # STEP 10: Commit to database
+        logger.info(f"[select_hero] DB_COMMIT: Committing transaction to database...")
+        
+        try:
+            db.commit()
+            logger.info(f"[select_hero] DB_COMMIT OK: Changes saved to database")
+        except Exception as e:
+            db.rollback()
+            logger.error(f"[select_hero] DB_COMMIT FAILED: {str(e)}", exc_info=True)
+            raise ValueError(f"Failed to save to database: {str(e)}")
+        
+        # STEP 11: Refresh and prepare response
+        logger.info(f"[select_hero] REFRESH: Refreshing match object from database...")
+        
+        try:
+            db.refresh(match)
+            logger.info(f"[select_hero] REFRESH OK: Match object refreshed")
+        except Exception as e:
+            logger.error(f"[select_hero] REFRESH FAILED: {str(e)}", exc_info=True)
+            raise ValueError(f"Failed to refresh match data: {str(e)}")
+        
+        # STEP 12: Build and return response
+        logger.info(f"[select_hero] SUCCESS: Building response...")
+        
+        response = {
+            "success": True,
+            "match_id": match.match_id,
+            "selected_hero": request.hero_name,
+            "metrics": metrics,
+            "advice": advice,
+            "overall_score": overall_score,
+            "strengths": analysis.get("strengths", []),
+            "weaknesses": analysis.get("weaknesses", []),
+            "power_spikes": analysis.get("power_spikes", []),
+            "mistakes": analysis.get("mistakes", [])
         }
         
-        # Simple advice based on stats
-        advice = []
+        logger.info(f"[select_hero] COMPLETE: Successfully analyzed hero '{request.hero_name}' for match {match_id}")
+        return response
         
-        # 1. GPM Analysis
-        role = selected_player.get("position", "unknown")
-        is_core = role in ["Safe Lane", "Mid Lane", "Off Lane", "1", "2", "3"] or "Core" in role
-        
-        if is_core and gpm < 400:
-             metrics["weaknesses"].append("Low GPM for core")
-             advice.append({
-                 "category": "farming",
-                 "priority": "high",
-                 "title": f"Low GPM ({gpm})",
-                 "description": "Your GPM is very low for a core role. Focus on last hitting and farming patterns."
-             })
-        elif is_core and gpm > 600:
-             metrics["strengths"].append("Excellent Farming speed")
-             advice.append({
-                 "category": "farming",
-                 "priority": "low",
-                 "title": "Excellent Farming Efficiency",
-                 "description": "Your GPM is high. Maintain this farm rate to secure late game dominance."
-             })
-             
-        # 2. Survival Analysis
-        if deaths > 8:
-            metrics["weaknesses"].append("High death count")
-            advice.append({
-                "category": "survival",
-                "priority": "high",
-                "title": f"High Death Count ({deaths})",
-                "description": "Each death gives gold to enemies and reduces your map presence. Play safer when enemies are missing."
-            })
-            
-        # 3. Teamfight Analysis
-        if tf_participation < 30.0:
-            metrics["weaknesses"].append("Low teamfight impact")
-            advice.append({
-                "category": "fighting",
-                "priority": "medium",
-                "title": f"Low Teamfight ({tf_participation}%)",
-                "description": "Carry a TP scroll and join fights. Don't AFK farm when your team needs you."
-            })
-        elif tf_participation > 60.0:
-            metrics["strengths"].append("High teamfight participation")
-            advice.append({
-                 "category": "fighting",
-                 "priority": "low",
-                 "title": "Key Playmaker",
-                 "description": "Your high participation is winning fights. Keep leading the charge."
-             })
-             
-        # 4. Laning Analysis (Last Hits at 10m would be better, but using total last hits as proxy for now)
-        if last_hits < 50 and match.duration_minutes > 20 and is_core:
-             advice.append({
-                 "category": "laning",
-                 "priority": "high",
-                 "title": "Low CS Count",
-                 "description": "Very low last hits. Practice last hitting in demo mode. Aim for 50 CS by 10 minutes."
-             })
-             
-        if kda < 2.0:
-            metrics["weaknesses"].append("Low KDA ratio")
-            
-        if kills > 10:
-            metrics["strengths"].append("High kill participation")
-        
-        # Calculate KDA
-        deaths = max(metrics["deaths"], 1)
-        metrics["kda"] = round((metrics["kills"] + metrics["assists"]) / deaths, 2)
-        
-        # Store selection in match
-        match.selected_hero_name = request.hero_name
-        match.selected_at = datetime.utcnow()
-        match.hero_name = request.hero_name  # Update primary hero field
-        
-        # Use the NEW targeted analysis with full parsed_data
-        analysis = analyzer.analyze_match(match.parsed_data, hero_name=request.hero_name)
-        
-        # Merge analysis metrics with extracted metrics (preserve our TF% and other raw data)
-        full_metrics = analysis["metrics"].copy()
-        
-        # Ensure our calculated metrics are preserved
-        keys_to_preserve = [
-            "teamfight_participation", "lane_efficiency", "vision_score", 
-            "stuns", "position_safety", "camp_stacking", 
-            "hero_damage", "tower_damage", "hero_healing"
-        ]
-        for k in keys_to_preserve:
-            if k in metrics:
-                full_metrics[k] = metrics[k]
-            
-        full_metrics.update({
-            "overall_score": analysis["overall_score"],
-            "strengths": analysis["strengths"] + metrics.get("strengths", []), # Merge strengths
-            "weaknesses": analysis["weaknesses"] + metrics.get("weaknesses", []), # Merge weaknesses
-            "power_spikes": analysis["power_spikes"],
-            "mistakes": analysis["mistakes"]
-        })
-        
-        # Update match with new metrics
-        from sqlalchemy.orm.attributes import flag_modified
-        match.metrics = full_metrics
-        match.advice = analysis["advice"] + advice
-        
-        # Explicitly flag JSON fields as modified for SQLAlchemy
-        flag_modified(match, "metrics")
-        flag_modified(match, "advice")
-        flag_modified(match, "parsed_data")
-        
-        db.commit()
-        db.refresh(match)
-        
-        logger.info(f"Hero selected: {request.hero_name} for match {match_id} by user {current_user.id}")
-        
-        return SelectHeroResponse(
-            match_id=match.match_id,
-            selected_hero=request.hero_name,
-            metrics=full_metrics,
-            parsed_data=match.parsed_data
-        )
-
-    except HTTPException:
-        raise
+    except ValueError as e:
+        logger.warning(f"[select_hero] CLIENT_ERROR: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
+    
     except Exception as e:
-        logger.error(f"SelectHero Failed: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Hero selection failed: {str(e)}"
-        )
+        logger.error(f"[select_hero] CRITICAL_ERROR: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@router.post("/select-hero", response_model=SelectHeroResponse)
+async def select_hero_legacy(
+    request: SelectHeroRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Legacy support for body-only match_id."""
+    return await select_hero(request.match_id, request, current_user, db)
