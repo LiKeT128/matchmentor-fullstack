@@ -4,6 +4,8 @@ from typing import Dict, Any, List, Optional
 import logging
 
 from app.services.benchmark_service import benchmark_service
+from app.services.stage_extractors import LaningStageExtractor
+from app.services.stage_constants import get_position
 
 logger = logging.getLogger(__name__)
 
@@ -79,15 +81,30 @@ class MatchAnalyzer:
         metrics["mid_game"] = self.calculate_midgame_metrics(player_data)
         metrics["late_game"] = self.calculate_lategame_metrics(player_data)
         
-        # === NEW: LANING STAGE ANALYSIS (0-10 min) ===
-        laning_data = {}
-        laning_analysis = {}
+        # === NEW: LANING STAGE ANALYSIS using LaningStageExtractor ===
+        laning_result = None
         
-        if hero_name:
-            laning_data = self._extract_laning_stage_data(parsed_data, hero_name)
-            if laning_data:
-                laning_analysis = self._analyze_laning_performance(laning_data, player_position)
-                logger.info(f"[analyze_match] Laning stage analysis: score={laning_analysis.get('laning_score', 0)}")
+        try:
+            if hero_index is not None:
+                # Get player data for extraction
+                players = parsed_data.get('players', [])
+                if hero_index < len(players):
+                    player_data_for_extraction = players[hero_index]
+                    position = get_position(player_data_for_extraction.get('player_slot', hero_index))
+                    
+                    # Extract laning stage using new extractor
+                    laning_extractor = LaningStageExtractor(player_data_for_extraction, position)
+                    laning_result = laning_extractor.extract()
+                    
+                    logger.info(
+                        f"[analyze_match] Laning extraction complete: "
+                        f"score={laning_result.performance_score:.1f}%, "
+                        f"advice_count={len(laning_result.advice)}, "
+                        f"data_source={laning_result.data_source}"
+                    )
+        except Exception as e:
+            logger.error(f"[analyze_match] Laning stage extraction failed: {str(e)}", exc_info=True)
+            laning_result = None
         
         # Flatten metrics for storage
         flat_metrics = self._flatten_metrics(metrics)
@@ -102,16 +119,22 @@ class MatchAnalyzer:
         advice = self.generate_deterministic_advice(flat_metrics, benchmark_comparison)
         
         # Merge laning advice with general advice
-        if laning_analysis.get("advice"):
-            advice.extend(laning_analysis["advice"])
+        if laning_result and laning_result.advice:
+            # Convert extractor advice format to old format if needed
+            for adv in laning_result.advice:
+                if isinstance(adv, dict):
+                    advice.append(adv.get('message', adv.get('title', str(adv))))
+                else:
+                    advice.append(str(adv))
         
         # Calculate overall score
         overall_score = self._calculate_overall_score(flat_metrics, benchmark_comparison)
         
         # If laning analysis exists, factor it into overall score
-        if laning_analysis.get("laning_score"):
+        if laning_result and laning_result.performance_score > 0:
             # Weight: 60% existing score + 40% laning score
-            overall_score = int(overall_score * 0.6 + laning_analysis["laning_score"] * 0.4)
+            overall_score = int(overall_score * 0.6 + laning_result.performance_score * 0.4)
+            logger.info(f"[analyze_match] Overall score updated with laning: {overall_score}")
         
         # Identify strengths and weaknesses
         strengths = self._identify_strengths(flat_metrics, benchmark_comparison)
@@ -129,27 +152,39 @@ class MatchAnalyzer:
         pro_lh = benchmark_service.get_benchmark_for_metric(benchmarks, "last_hits_per_min", "75") * duration
         
         # Update flat_metrics with pro benchmarks (keeping for backward compatibility)
-        # But now these are NOT hardcoded - they come from benchmark_service or laning_analysis
+        # Now using LaningStageExtractor data when available
+        lh_benchmark = 55  # Default
+        if laning_result and laning_result.metrics:
+            lh_benchmark = laning_result.metrics.get('lh_benchmark', 55)
+        
         flat_metrics.update({
             "pro_avg_gpm": pro_gpm,
             "pro_avg_xpm": pro_xpm,
             "pro_avg_lh": pro_lh,
-            # Use actual laning analysis data instead of hardcoded values
-            "pro_avg_lh_10": laning_analysis.get("comparison", {}).get("expected_lh", 55),
-            "pro_avg_vision": 15.5  # Keep this for now as we don't have vision standards yet
+            "pro_avg_lh_10": lh_benchmark,
+            "pro_avg_vision": 15.5
         })
         
-        # Build game_stages structure
+        # Build game_stages structure using LaningStageExtractor result
         game_stages = {}
         
-        if laning_data and laning_analysis:
+        if laning_result:
             game_stages["laning"] = {
                 "duration_min": 10,
-                "data": laning_data,
-                "metrics": laning_analysis.get("metrics", {}),
-                "score": laning_analysis.get("laning_score", 0),
-                "comparison": laning_analysis.get("comparison", {}),
-                "advice": laning_analysis.get("advice", [])
+                "data": laning_result.snapshots[0] if laning_result.snapshots else {},
+                "metrics": laning_result.metrics,
+                "score": laning_result.performance_score,
+                "advice": laning_result.advice,
+                "data_source": laning_result.data_source,
+                "events": laning_result.events[:10] if laning_result.events else []  # First 10 events
+            }
+        else:
+            # Fallback if extraction failed
+            game_stages["laning"] = {
+                "duration_min": 10,
+                "status": "extraction_failed",
+                "score": 0,
+                "advice": ["Laning analysis not available for this match"]
             }
         
         # Prepare response
