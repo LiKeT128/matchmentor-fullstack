@@ -1,0 +1,112 @@
+{
+  "account_id": 128685816,
+  "player_slot": 0,
+  "team_number": 0,
+  "team_slot": 0,
+  "hero_id": 2,
+  "hero_variant": 2,
+  "item_0": 1,
+  "item_1": 127,
+  "item_2": 116,
+  "item_3": 226,
+  "item_4": 154,
+  "item_5": 50,
+  "backpack_0": 0,
+  "backpack_1": 244,
+  "backpack_2": 90,
+  "item_neutral": 1720,
+  "item_neutral2": 1585,
+  "kills": 21,
+  "deaths": 17,
+  "assists": 18,
+  "leaver_status": 0,
+  "last_hits": 228,
+  "denies": 6,
+  "gold_per_min": 570,
+  "xp_per_min": 852,
+  "level": 27,
+  "net_worth": 24892,
+  "aghanims_scepter": 0,
+  "aghanims_shard": 1,
+  "moonshard": 0,
+  "hero_damage": 61343,
+  "tower_damage": 36,
+  "hero_healing": 0,
+  "gold": 1192,
+  "gold_spent": 24370,
+  "ability_upgrades_arr": [
+    5008,
+    5009,
+    5007,
+    5008,
+    5008,
+    5010,
+    5008,
+    5009,
+    5009,
+    5009,
+    9401,
+    5007,
+    5010,
+    5007,
+    5007,
+    6102,
+    5010,
+    6145,
+    562,
+    1189
+  ],
+  "personaname": ".ottis",
+  "name": null,
+  "last_login": null,
+  "rank_tier": 45,
+  "computed_mmr": 3980.74,
+  "is_subscriber": false,
+  "radiant_win": false,
+  "start_time": 1767899428,
+  "duration": 3337,
+  "cluster": 182,
+  "lobby_type": 0,
+  "game_mode": 22,
+  "is_contributor": false,
+  "patch": 59,
+  "region": 8,
+  "isRadiant": true,
+  "win": 0,
+  "lose": 1,
+  "total_gold": 31701,
+  "total_xp": 47385,
+  "kills_per_min": 0.3775846568774348,
+  "kda": 2.17,
+  "abandons": 0,
+  "benchmarks": {
+    "gold_per_min": {
+      "raw": 570,
+      "pct": 0.7987421383647799
+    },
+    "xp_per_min": {
+      "raw": 852,
+      "pct": 0.7511621547716708
+    },
+    "kills_per_min": {
+      "raw": 0.3775846568774348,
+      "pct": 0.8156959256220946
+    },
+    "last_hits_per_min": {
+      "raw": 4.099490560383578,
+      "pct": 0.3450916051408258
+    },
+    "hero_damage_per_min": {
+      "raw": 1102.9607431824993,
+      "pct": 0.9250751982499317
+    },
+    "hero_healing_per_min": {
+      "raw": 0,
+      "pct": 0.933552091878589
+    },
+    "tower_damage": {
+      "raw": 36,
+      "pct": 0.19961717254580258
+    }
+  }
+}
