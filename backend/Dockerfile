@@ -5,6 +5,7 @@ FROM python:3.11-slim-bookworm
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV CLARITY_JAR_PATH=clarity.jar
+ENV JAVA_OPTS="-Xmx2G -Xms1G"
 
 # Install System Dependencies (Java 17 Runtime + Utils)
 RUN apt-get update && \

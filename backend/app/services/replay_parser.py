@@ -295,7 +295,7 @@ class ReplayParser:
             # Optimized JVM parameters for low-memory free tier environment
             java_cmd = [
                 java_bin,
-                "-Xmx512m",                              # Max heap: 512MB (fits in free tier)
+                "-Xmx2G",                                # Max heap: 2GB (as requested)
                 "-Xms128m",                              # Initial heap: 128MB
                 "-XX:+UseG1GC",                          # G1 Garbage Collector (low pause times)
                 "-XX:MaxGCPauseMillis=50",               # Aggressive GC pause control

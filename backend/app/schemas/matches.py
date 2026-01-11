@@ -9,6 +9,7 @@ class MatchResponse(BaseModel):
     match_id: str
     hero_name: str
     duration_minutes: int
+    duration: int = 0  # Added for frontend compatibility (seconds)
     result: str
     overall_score: int = 0
     created_at: datetime
@@ -38,6 +39,7 @@ class MatchDetailResponse(BaseModel):
     match_id: str
     hero_name: str
     duration_minutes: int
+    duration: int = 0  # Added for frontend compatibility (seconds)
     result: str
     metrics: dict
     advice: list

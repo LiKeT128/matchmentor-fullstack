@@ -639,6 +639,7 @@ async def list_matches(
             match_id=m.match_id,
             hero_name=m.hero_name,
             duration_minutes=m.duration_minutes,
+            duration=(m.parsed_data.get("duration_seconds") if m.parsed_data else 0) or (m.duration_minutes * 60),
             result=m.result,
             overall_score=m.metrics.get("overall_score") if m.metrics else None,
             created_at=m.created_at,
@@ -811,6 +812,7 @@ async def get_match(
             match_id=match.match_id,
             hero_name=match.hero_name,
             duration_minutes=match.duration_minutes,
+            duration=(match.parsed_data.get("duration_seconds") if match.parsed_data else 0) or (match.duration_minutes * 60),
             result=match.result,
             metrics=metrics,
             advice=advice,
@@ -1191,15 +1193,27 @@ async def select_hero(
         
         response = {
             "success": True,
+            "id": match.id,
             "match_id": match.match_id,
-            "selected_hero": request.hero_name,
+            "hero_name": match.hero_name,
+            "duration_minutes": match.duration_minutes,
+            "duration": (match.parsed_data.get("duration_seconds") if match.parsed_data else 0) or (match.duration_minutes * 60),
+            "result": match.result,
             "metrics": metrics,
             "advice": advice,
             "overall_score": analysis.get("overall_score", 0),
             "strengths": analysis.get("strengths", []),
             "weaknesses": analysis.get("weaknesses", []),
             "power_spikes": analysis.get("power_spikes", []),
-            "mistakes": analysis.get("mistakes", [])
+            "mistakes": analysis.get("mistakes", []),
+            "rank_tier": metrics.get("rank_tier", 0),
+            "items": match.parsed_data.get("items", []) if match.parsed_data else [],
+            "parsed_data": parsed_data,
+            "created_at": match.created_at,
+            "selected_hero_name": match.selected_hero_name,
+            "selected_at": match.selected_at,
+            "steam_id": match.steam_id,
+            "heroes_in_match": _extract_heroes_from_match(match.parsed_data)
         }
         
         logger.info(f"[select_hero] SUCCESS: Endpoint complete for match {match_id}")

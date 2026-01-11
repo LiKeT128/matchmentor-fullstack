@@ -55,6 +55,28 @@ class MatchAnalyzer:
             # Create a minimal structure if somehow heroes list is empty
             player_data = parsed_data
             
+        # CRITICAL FIX: Merge rich data from 'players' array if available
+        # The 'heroes' list often contains simplified data. We need 'gold_t', 'lh_t' etc from 'players'.
+        players_list = parsed_data.get("players", [])
+        if players_list and "player_id" in player_data:
+            try:
+                p_idx = int(player_data["player_id"])
+                if 0 <= p_idx < len(players_list):
+                    rich_data = players_list[p_idx]
+                    # Merge rich data INTO player_data, prioritizing existing specific fields but adding missing ones
+                    # We want to keep identified hero_name from player_data but get time-series from rich_data
+                    for k, v in rich_data.items():
+                        if k not in player_data:
+                            player_data[k] = v
+                    
+                    # Also ensure 'full_data' is populated if missing (needed for some calculators)
+                    if "full_data" not in player_data:
+                        player_data["full_data"] = rich_data
+                        
+                    logger.info(f"[analyze_match] Merged rich data for player {p_idx}")
+            except Exception as e:
+                logger.warning(f"Failed to merge rich player data: {e}")
+
         # Ensure duration_minutes is globally available to calculators
         duration = parsed_data.get("duration_minutes", 30)
         player_data["duration_minutes"] = duration
@@ -490,39 +512,18 @@ class MatchAnalyzer:
                 "lane_control_pct": 50
              }
 
-        # 3. FALLBACK: Estimation heuristics
-        logger.warning("[LANE_METRICS] No real laning data found. Using ESTIMATES.")
-        
-        # Actual hero stats
-        total_lh = data.get("last_hits", 0)
-        total_gold = data.get("net_worth") or (data.get("gold_per_min", 300) * duration)
-        
-        # Estimation Logic:
-        # Core heroes get ~30% of their total LH by 10 min in long games, more in short games.
-        # Support heroes get much less.
-        position = str(data.get("position") or "").lower()
-        is_core = any(r in position for r in ["safe", "mid", "off", "core", "carry", "1", "2", "3"])
-        
-        lh_multiplier = 0.25 if is_core else 0.1
-        gold_multiplier = 0.2 if is_core else 0.15
-        
-        # Scale by duration - if game is 20 min, 10 min is half the game.
-        # If game is 60 min, 10 min is 1/6th.
-        time_factor = min(1.0, 10 / max(duration, 10))
-        
-        est_lh_10 = total_lh * lh_multiplier / time_factor
-        # Cap at reasonable pro levels
-        est_lh_10 = min(est_lh_10, 85 if is_core else 30)
-        
-        est_gold_10 = total_gold * gold_multiplier / time_factor
-        est_gold_10 = min(est_gold_10, 5000 if is_core else 2500)
+        # 3. FALLBACK: No real data
+        logger.warning("[LANE_METRICS] No real laning data found. Returning 0/None to avoid fake metrics.")
         
         return {
-            "lh_at_10": int(est_lh_10),
-            "gold_at_10": int(est_gold_10),
-            "xp_at_10": int(est_gold_10 * 1.1), # Rough XP/Gold correlation in lane
-            "deaths_in_lane": data.get("deaths", 0) // 4, # Rough estimate for lane phase
-            "lane_control_pct": 50
+            "lh_at_10": 0,
+            "gold_at_10": 0,
+            "xp_at_10": 0,
+            "deaths_in_lane": data.get("deaths", 0) // 4, # Keep rough estimate or set to 0? User hated templates.
+            # actually, lane deaths can be estimated from kill log if we had it, but here we don't.
+            # Safer to return 0.
+            "deaths_in_lane": 0,
+            "lane_control_pct": 0
         }
 
     def _xp_to_level(self, xp: int) -> int:
