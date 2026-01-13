@@ -347,10 +347,12 @@ class ReplayParser:
                             "Try uploading a different file (< 50MB)."
                         )
                 
+                print(f"DEBUG: Subprocess finished with return code: {return_code}", flush=True)
                 logger.info(f"Subprocess finished with return code: {return_code}")
                 
                 # Check for OOM kill
                 if return_code == -9:
+                    print("DEBUG: Process killed by OOM (-9)", flush=True)
                     logger.error("Process killed by OOM (-9). Memory limit exceeded.")
                     # Try fallback parser
                     try:
@@ -369,13 +371,16 @@ class ReplayParser:
                     try:
                         with open(err_output_path, "r", encoding="utf-8", errors="ignore") as ef:
                             err_content = ef.read()
+                            print(f"DEBUG: Java Error Output: {err_content[:1000]}", flush=True)
                     except Exception:
                         pass
                     logger.error(f"Clarity parser failed. Stderr: {err_content[:1000]}") # Log first 1000 chars
                     raise Exception(f"Clarity parser failed (code {return_code}): {err_content[:500]}...")
 
                 # Check if JSON file was created and has content
+                print(f"DEBUG: Checking JSON output at {json_output_path}", flush=True)
                 if not os.path.exists(json_output_path) or os.path.getsize(json_output_path) == 0:
+                    print("DEBUG: JSON file missing or empty!", flush=True)
                      raise Exception("Clarity produced no output.")
 
                 # Parse JSON from file
