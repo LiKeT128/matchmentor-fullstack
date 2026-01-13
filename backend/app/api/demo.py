@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 # Max file size: 500MB
 MAX_FILE_SIZE = 500 * 1024 * 1024
 
-@router.post("/upload-demo", status_code=status.HTTP_202_ACCEPTED)
+@router.post("/upload-demo", status_code=status.HTTP_200_OK)
 async def upload_demo_file(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
@@ -34,38 +34,43 @@ async def upload_demo_file(
     
     Returns a job ID (match record ID) that can be polled for status.
     """
-    # 1. Validate File
-    if not file.filename.endswith('.dem'):
+    # 1. Validate File Extension
+    if not file.filename or not file.filename.endswith('.dem'):
         raise HTTPException(
             status_code=400,
             detail="Only .dem files are accepted"
         )
     
-    # Check size (approximate via seek if supported, or read chunk)
-    # file.file is a SpooledTemporaryFile usually
+    # 2. Check File Size (max 500MB)
     try:
         file.file.seek(0, 2)
         size = file.file.tell()
         file.file.seek(0)
         
         if size > MAX_FILE_SIZE:
-             raise HTTPException(
+            raise HTTPException(
                 status_code=413,
-                detail=f"File size {size / 1024 / 1024:.1f}MB exceeds limit of 500MB"
+                detail=f"File size exceeds 500MB limit"
             )
+    except HTTPException:
+        raise
     except Exception:
         # If seek fails, we'll check during read/save
         pass
 
-    # 2. Save to Temp
+    # 3. Create /tmp/demos directory if it doesn't exist
+    demos_dir = "/tmp/demos"
     try:
-        # Use system temp dir
-        temp_dir = tempfile.gettempdir()
-        demos_dir = os.path.join(temp_dir, "matchmentor_demos")
         os.makedirs(demos_dir, exist_ok=True)
-        
+    except Exception as e:
+        logger.warning(f"Failed to create /tmp/demos, using system temp: {e}")
+        demos_dir = os.path.join(tempfile.gettempdir(), "demos")
+        os.makedirs(demos_dir, exist_ok=True)
+
+    # 4. Save file with unique name
+    try:
         timestamp = int(time.time() * 1000)
-        safe_filename = f"{current_user.id}_{timestamp}_{uuid.uuid4().hex[:8]}.dem"
+        safe_filename = f"{current_user.id}_{timestamp}.dem"
         temp_filepath = os.path.join(demos_dir, safe_filename)
         
         with open(temp_filepath, "wb") as f:
@@ -107,8 +112,7 @@ async def upload_demo_file(
     
     return {
         "status": "queued",
-        "match_id": pending_match.id, # Internal DB ID for polling
-        "temp_match_id": temp_match_id,
+        "match_id": pending_match.id,  # Internal DB ID for polling
         "message": "Demo file uploaded. Parsing in progress..."
     }
 
@@ -120,6 +124,12 @@ async def get_match_status(
 ):
     """
     Get parsing status of a demo file by internal database ID.
+    
+    Returns:
+        status: "parsing" | "completed" | "failed"
+        hero_name: "pending" | "npc_dota_hero_..."
+        duration_minutes: 0 | actual value
+        result: "pending" | "WIN" | "LOSS"
     """
     match = db.query(Match).filter(
         Match.id == match_id,
@@ -129,29 +139,32 @@ async def get_match_status(
     if not match:
         raise HTTPException(status_code=404, detail="Match not found")
     
-    # Determine Status
+    # Determine Status - CRITICAL: Check hero_name first
     parsed_data = match.parsed_data or {}
-    status_msg = "completed"
     
-    if parsed_data.get("status") == "parsing":
-        status_msg = "parsing"
-    elif parsed_data.get("status") == "failed":
-        status_msg = "failed"
+    # Check for failed status first
+    if parsed_data.get("status") == "failed" or parsed_data.get("error"):
         return {
             "status": "failed",
             "message": parsed_data.get("error", "Unknown error"),
-            "match_id": match.id
+            "match_id": match.id,
+            "hero_name": match.hero_name,
+            "duration_minutes": match.duration_minutes,
+            "result": match.result
         }
-    elif match.hero_name == "pending":
-         # Should be caught by 'parsing' check usually, but safer fallback
-         status_msg = "parsing"
     
-    # If completed
+    # Check if hero_name is set (not "pending") - indicates completion
+    if match.hero_name and match.hero_name != "pending":
+        status_msg = "completed"
+    else:
+        # Still parsing
+        status_msg = "parsing"
+    
     return {
         "status": status_msg,
         "match_id": match.id,
-        "real_match_id": match.match_id if match.match_id and not match.match_id.startswith("pending") else None,
         "hero_name": match.hero_name,
+        "duration_minutes": match.duration_minutes,
         "result": match.result
     }
 
@@ -206,7 +219,8 @@ def parse_demo_background(
                 pass
 
             match.match_id = str(real_match_id)
-            match.hero_name = match_data["hero_name"]
+            # CRITICAL: Must save hero_name - this is how status endpoint detects completion
+            match.hero_name = match_data["hero_name"]  # Must not be None/empty
             match.duration_minutes = match_data["duration_minutes"]
             match.result = match_data["result"]
             
@@ -219,8 +233,9 @@ def parse_demo_background(
             match.advice = match_data["advice"]
             match.steam_id = match_data.get("steam_id")
             
+            # Commit changes
             db.commit()
-            logger.info(f"✓ Background parse success for match {real_match_id}")
+            logger.info(f"✓ Background parse success for match {real_match_id}, hero_name={match.hero_name}")
             
             # Optional: Email notification
             # try:

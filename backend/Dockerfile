@@ -27,5 +27,8 @@ COPY . .
 COPY start.sh ./start.sh
 RUN chmod +x ./start.sh
 
+# Create temp demos directory
+RUN mkdir -p /tmp/demos
+
 # Start Application via script
 CMD ["/app/start.sh"]
