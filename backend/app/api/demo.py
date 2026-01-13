@@ -185,57 +185,73 @@ def parse_demo_background(
         # 1. Parse with ReplayParser
         parser = ReplayParser()
         print(f"DEBUG: ReplayParser initialized, calling parse_replay for {demo_path}", flush=True)
+        logger.info(f"[BG] Step 1: Parsing demo file...")
         # This might take time
         clarity_output = parser.parse_replay(demo_path)
         print("DEBUG: parse_replay returned successfully", flush=True)
+        logger.info(f"[BG] Step 1 OK: Parsed data keys: {list(clarity_output.keys())}")
         
         # 2. Convert to Match model format
         # This includes analysis
-        match_data = DemoConverter.convert_clarity_to_match(
-            clarity_data=clarity_output,
-            player_id=player_id
-        )
+        logger.info(f"[BG] Step 2: Converting clarity data to match format...")
+        print(f"DEBUG: Calling DemoConverter.convert_clarity_to_match", flush=True)
+        try:
+            match_data = DemoConverter.convert_clarity_to_match(
+                clarity_data=clarity_output,
+                player_id=player_id
+            )
+            logger.info(f"[BG] Step 2 OK: Match data keys: {list(match_data.keys())}")
+            logger.info(f"[BG] Step 2 OK: hero_name={match_data.get('hero_name')}, match_id={match_data.get('match_id')}")
+            print(f"DEBUG: DemoConverter returned successfully, hero_name={match_data.get('hero_name')}", flush=True)
+        except Exception as conv_error:
+            logger.error(f"[BG] Step 2 FAILED: DemoConverter error: {conv_error}", exc_info=True)
+            print(f"DEBUG: DemoConverter failed: {conv_error}", flush=True)
+            raise
         
         # 3. Update Match Record
+        logger.info(f"[BG] Step 3: Updating match record {match_record_id}...")
+        print(f"DEBUG: Querying match record {match_record_id}", flush=True)
         match = db.query(Match).filter(Match.id == match_record_id).first()
-        if match:
-            # Check for existing real match_id to prevent duplicates?
-            # User might upload same match twice.
-            # Ideally we check if 'match_id' already exists for this user.
-            real_match_id = match_data["match_id"]
-            
-            existing = db.query(Match).filter(
-                Match.player_id == player_id,
-                Match.match_id == str(real_match_id)
-            ).first()
-            
-            if existing and existing.id != match_record_id:
-                # User already has this match!
-                # We can either merge or fail. 
-                # Let's fail gracefully saying "Already exists" or just update THIS record
-                # Update THIS record is safer to avoid confusing the user who just got ID `match_record_id`
-                # But we can't have duplicate (player_id, match_id) if there's a constraint (not strictly unique in model, just index)
-                # Model: match_id = Column(String(50), index=True, nullable=False) -> Not unique constraint on DB level apparently from class def
-                pass
-
-            match.match_id = str(real_match_id)
-            # CRITICAL: Must save hero_name - this is how status endpoint detects completion
-            match.hero_name = match_data["hero_name"]  # Must not be None/empty
-            match.duration_minutes = match_data["duration_minutes"]
-            match.result = match_data["result"]
-            
-            # Enrich parsed data with status
-            p_data = match_data["parsed_data"]
+        if not match:
+            logger.error(f"[BG] Step 3 FAILED: Match record {match_record_id} not found!")
+            raise ValueError(f"Match record {match_record_id} not found")
+        
+        logger.info(f"[BG] Step 3: Match found, updating fields...")
+        # Check for existing real match_id to prevent duplicates?
+        real_match_id = match_data.get("match_id")
+        if not real_match_id:
+            logger.warning(f"[BG] Step 3: No match_id in match_data, using existing")
+            real_match_id = match.match_id
+        
+        # CRITICAL: Must save hero_name - this is how status endpoint detects completion
+        hero_name = match_data.get("hero_name")
+        if not hero_name or hero_name == "pending":
+            logger.error(f"[BG] Step 3 FAILED: Invalid hero_name: {hero_name}")
+            raise ValueError(f"Invalid hero_name: {hero_name}")
+        
+        logger.info(f"[BG] Step 3: Setting hero_name={hero_name}, match_id={real_match_id}")
+        match.match_id = str(real_match_id)
+        match.hero_name = hero_name  # Must not be None/empty
+        match.duration_minutes = match_data.get("duration_minutes", 0)
+        match.result = match_data.get("result", "LOSS")
+        
+        # Enrich parsed data with status
+        p_data = match_data.get("parsed_data", {})
+        if isinstance(p_data, dict):
             p_data["status"] = "completed"
-            match.parsed_data = p_data
-            
-            match.metrics = match_data["metrics"]
-            match.advice = match_data["advice"]
-            match.steam_id = match_data.get("steam_id")
-            
-            # Commit changes
-            db.commit()
-            logger.info(f"✓ Background parse success for match {real_match_id}, hero_name={match.hero_name}")
+        match.parsed_data = p_data
+        
+        match.metrics = match_data.get("metrics", {})
+        match.advice = match_data.get("advice", [])
+        match.steam_id = match_data.get("steam_id")
+        
+        logger.info(f"[BG] Step 4: Committing changes to database...")
+        print(f"DEBUG: About to commit, hero_name={match.hero_name}", flush=True)
+        
+        # Commit changes
+        db.commit()
+        logger.info(f"[BG] ✓ Background parse success for match {real_match_id}, hero_name={match.hero_name}")
+        print(f"DEBUG: Commit successful! hero_name={match.hero_name}", flush=True)
             
             # Optional: Email notification
             # try:
@@ -243,14 +259,21 @@ def parse_demo_background(
             # catch...
             
     except Exception as e:
-        logger.error(f"Background parsing failed: {e}")
+        logger.error(f"[BG] Background parsing failed: {e}", exc_info=True)
+        print(f"DEBUG: Exception in background task: {e}", flush=True)
+        import traceback
+        logger.error(f"[BG] Traceback: {traceback.format_exc()}")
         match = db.query(Match).filter(Match.id == match_record_id).first()
         if match:
             existing_data = match.parsed_data or {}
             existing_data["status"] = "failed"
             existing_data["error"] = str(e)
             match.parsed_data = existing_data
-            db.commit()
+            try:
+                db.commit()
+                logger.info(f"[BG] Error status saved to match {match_record_id}")
+            except Exception as commit_error:
+                logger.error(f"[BG] Failed to save error status: {commit_error}")
             
     finally:
         db.close()

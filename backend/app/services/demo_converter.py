@@ -28,18 +28,25 @@ class DemoConverter:
         """
         
         # 1. Identify User's Hero
-        # Try to find player by account_id/steam_id if provided
-        user_player = None
-        players = clarity_data.get("players", [])
+        # ReplayParser returns normalized data with "heroes" key (not "players")
+        # Also check full_data for raw Clarity output
+        full_data = clarity_data.get("full_data", {})
+        players = clarity_data.get("players", full_data.get("players", []))
+        heroes = clarity_data.get("heroes", [])
+        
+        # Use heroes list if available (ReplayParser format), otherwise use players
+        player_list = heroes if heroes else players
         
         # If clarity_data has a specific 'hero_name' set (from single-player parsing focus), use it
         focused_hero = clarity_data.get("hero_name")
         
+        user_player = None
+        
         if account_id:
-            # Search in players list
+            # Search in player list
             # account_id in Clarity might be integer or string
             str_acc_id = str(account_id)
-            for p in players:
+            for p in player_list:
                 p_acc = str(p.get("account_id", ""))
                 p_steam = str(p.get("steam_id", ""))
                 if p_acc == str_acc_id or p_steam == str_acc_id:
@@ -48,7 +55,7 @@ class DemoConverter:
                     
         # If still not found, and we have a focused hero name, find that player
         if not user_player and focused_hero and focused_hero != "Unknown":
-            for p in players:
+            for p in player_list:
                 h_name = p.get("hero_name", p.get("hero"))
                 # Handle possible ID vs Name mismatch
                 if isinstance(h_name, int):
@@ -58,21 +65,32 @@ class DemoConverter:
                     user_player = p
                     break
         
-        # Fallback: assume first player if nothing else matches (or raise error?)
-        # For now, let's be safe and assume first player if completely unknown, 
-        # but log warning. Better than failing.
-        if not user_player and players:
+        # Fallback: use hero_name from top level if available (ReplayParser sets this)
+        if not user_player and focused_hero and focused_hero != "Unknown":
+            # Create a minimal player dict from top-level data
+            user_player = {
+                "hero_name": focused_hero,
+                "steam_id": clarity_data.get("steam_id"),
+                "account_id": clarity_data.get("steam_id")
+            }
+        elif not user_player and player_list:
             logger.warning("Could not identify specific user in replay, defaulting to first player.")
-            user_player = players[0]
+            user_player = player_list[0]
+        elif not user_player and focused_hero:
+            # Last resort: use top-level hero_name
+            user_player = {
+                "hero_name": focused_hero,
+                "steam_id": clarity_data.get("steam_id")
+            }
             
         if not user_player:
-            # Should satisfy strict mode? Prompt said "Raise error if user not found"
-            # But ReplayParser return structure might be slightly different.
-            # safe fallback:
             raise ValueError("Could not identify player in replay data")
 
         # Extract hero name
         user_hero = user_player.get("hero_name", user_player.get("hero"))
+        if not user_hero:
+            # Fallback to top-level hero_name
+            user_hero = clarity_data.get("hero_name", "Unknown")
         if isinstance(user_hero, int):
             user_hero = get_hero_name(user_hero)
             
