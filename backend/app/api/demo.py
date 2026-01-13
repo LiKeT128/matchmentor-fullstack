@@ -155,12 +155,14 @@ async def get_match_status(
         "result": match.result
     }
 
-async def parse_demo_background(
+def parse_demo_background(
     demo_path: str,
     match_record_id: int,
     player_id: int
 ):
     """Background task to parse demo and update DB."""
+    # Force immediate flush of this log
+    print(f"DEBUG: Entering parse_demo_background for match {match_record_id}", flush=True)
     logger.info(f"Starting background parse for record {match_record_id}")
     
     # New DB session for thread safety
