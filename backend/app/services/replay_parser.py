@@ -402,13 +402,24 @@ class ReplayParser:
                 with open(json_output_path, "r", encoding="utf-8") as f:
                     content = f.read()
                 
+                # Check for suspiciously small output (e.g. only error logs)
+                if len(content) < 5000: # 5KB is too small for a match
+                    print("DEBUG: Output too small, likely only contains error logs.", flush=True)
+                    logger.warning(f"Output too small ({len(content)} bytes). Likely parsing failure.")
+                    # Force fallback
+                    raise Exception("Output suspiciously small - likely parsing failure")
+
                 json_start = content.find('{')
                 if json_start == -1:
                     logger.error(f"No JSON found in output. Content start: {content[:500]}")
                     raise Exception("Clarity output contained no JSON data")
-                    
-                json_str = content[json_start:]
-                raw_data = json.loads(json_str)
+                
+                try:
+                    json_str = content[json_start:]
+                    raw_data = json.loads(json_str)
+                except json.JSONDecodeError as je:
+                    print(f"DEBUG: JSON decode failed: {je}", flush=True)
+                    raise Exception("Invalid JSON produced by Clarity")
                 logger.info("JSON successfully parsed from file")
                 
                 # Log memory after successful parse
@@ -499,14 +510,16 @@ class ReplayParser:
                 if os.path.exists(err_output_path):
                     os.remove(err_output_path)
             
-        except subprocess.TimeoutExpired:
-            raise Exception("Replay parsing timeout (>5 minutes)")
-        except json.JSONDecodeError as e:
-            raise Exception(f"Clarity output not valid JSON: {str(e)}")
-        except FileNotFoundError:
-            raise Exception("Java not found. Please install Java Runtime Environment")
         except Exception as e:
-            raise Exception(f"Parsing error: {str(e)}")
+            logger.warning(f"Clarity parsing failed: {e}. Attempting Manta fallback...")
+            print(f"DEBUG: Clarity failed ({type(e).__name__}: {e}). Trying Manta fallback...", flush=True)
+            try:
+                # Attempt fallback to Manta parser
+                return parse_with_manta(file_path)
+            except Exception as manta_e:
+                logger.error(f"Manta fallback also failed: {manta_e}")
+                # Raise the original Clarity error but mention Manta failed too
+                raise Exception(f"Parsing failed. Clarity error: {str(e)}. Manta fallback error: {str(manta_e)}")
     
     def _normalize_data(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """
