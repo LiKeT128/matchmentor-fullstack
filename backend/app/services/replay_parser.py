@@ -379,9 +379,21 @@ class ReplayParser:
 
                 # Check if JSON file was created and has content
                 print(f"DEBUG: Checking JSON output at {json_output_path}", flush=True)
-                if not os.path.exists(json_output_path) or os.path.getsize(json_output_path) == 0:
-                    print("DEBUG: JSON file missing or empty!", flush=True)
-                    raise Exception("Clarity produced no output.")
+                if not os.path.exists(json_output_path):
+                     print("DEBUG: JSON file NOT found!", flush=True)
+                     raise Exception("Clarity produced no output file.")
+                
+                start_size = os.path.getsize(json_output_path)
+                print(f"DEBUG: JSON file found. Size: {start_size} bytes", flush=True)
+                
+                if start_size == 0:
+                    print("DEBUG: JSON file is empty (0 bytes)!", flush=True)
+                    raise Exception("Clarity produced empty output.")
+
+                # Peek at content
+                with open(json_output_path, 'r', errors='ignore') as f:
+                    preview = f.read(200)
+                    print(f"DEBUG: JSON Preview: {preview}", flush=True)
 
                 # Parse JSON from file
                 # Skip prefix noise (warnings, logs) to find start of JSON
