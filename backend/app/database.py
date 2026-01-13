@@ -17,7 +17,7 @@ if db_url and db_url.startswith("postgres://"):
 engine = create_engine(
     db_url,
     pool_pre_ping=True,
-    echo=settings.debug
+    echo=False  # Disabled to separate debug logs from SQL noise
 )
 
 # Session factory
