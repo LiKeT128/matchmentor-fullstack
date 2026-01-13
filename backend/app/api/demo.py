@@ -171,8 +171,10 @@ def parse_demo_background(
     try:
         # 1. Parse with ReplayParser
         parser = ReplayParser()
+        print(f"DEBUG: ReplayParser initialized, calling parse_replay for {demo_path}", flush=True)
         # This might take time
         clarity_output = parser.parse_replay(demo_path)
+        print("DEBUG: parse_replay returned successfully", flush=True)
         
         # 2. Convert to Match model format
         # This includes analysis

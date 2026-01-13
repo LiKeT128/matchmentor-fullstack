@@ -197,6 +197,7 @@ class ReplayParser:
             Exception: If parsing fails or times out.
         """
         # Log memory status at start
+        print(f"DEBUG: ReplayParser.parse_replay called for {file_path}", flush=True)
         log_memory_status()
         
         if not os.path.exists(file_path):
@@ -205,9 +206,11 @@ class ReplayParser:
         if not file_path.endswith('.dem'):
             raise Exception("Invalid file format. Expected .dem file")
         
-        # Preprocess file to detect potential issues
         preprocess_info = preprocess_replay(file_path)
+        print(f"DEBUG: Preprocessing done. Info: {preprocess_info}", flush=True)
         logger.info(f"File size: {preprocess_info.get('size_mb', 0):.1f}MB")
+        print("DEBUG: Preprocessing done, resolving Java...", flush=True)
+
         
         try:
             # Resolve Java path
@@ -322,6 +325,7 @@ class ReplayParser:
                 # Stream both stdout and stderr to files to avoid Python OOM
                 with open(json_output_path, "wb") as output_file, open(err_output_path, "wb") as error_file:
                     logger.info(f"Starting subprocess and streaming to {json_output_path}")
+                    print(f"DEBUG: Starting Java subprocess...", flush=True)
                     
                     process = subprocess.Popen(
                         java_cmd,
@@ -330,9 +334,11 @@ class ReplayParser:
                         cwd=os.path.dirname(file_path) if os.path.dirname(file_path) else None
                     )
                     
-                    # Wait with 5-minute timeout to prevent hanging
+                    print(f"DEBUG: Subprocess started with PID {process.pid}. Waiting...", flush=True)
+
+                    # Wait with 2-minute timeout to prevent hanging (reduced from 5m)
                     try:
-                        return_code = process.wait(timeout=300)
+                        return_code = process.wait(timeout=120)
                     except subprocess.TimeoutExpired:
                         process.kill()
                         logger.error("Clarity parser timeout (possible OOM)")
