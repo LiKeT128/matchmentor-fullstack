@@ -13,7 +13,6 @@ from app.models.user import User
 from app.models.match import Match
 from app.services.auth_service import get_current_user
 from app.services.replay_parser import ReplayParser
-from app.services.demo_converter import DemoConverter
 from app.services.email_service import email_service
 
 router = APIRouter(prefix="/api/matches", tags=["demo"])
@@ -139,7 +138,7 @@ async def get_match_status(
     if not match:
         raise HTTPException(status_code=404, detail="Match not found")
     
-    # Determine Status - CRITICAL: Check hero_name first
+    # Determine Status based on parsed_data status
     parsed_data = match.parsed_data or {}
     
     # Check for failed status first
@@ -153,9 +152,18 @@ async def get_match_status(
             "result": match.result
         }
     
-    # Check if hero_name is set (not "pending") - indicates completion
-    if match.hero_name and match.hero_name != "pending":
-        status_msg = "completed"
+    # Check parsed_data status (parsing/completed)
+    parsed_status = parsed_data.get("status", "parsing")
+    
+    if parsed_status == "completed":
+        # Parsing completed - ready for hero selection OR already analyzed
+        # If hero_name is still "pending", parsing is done but hero not selected
+        # If hero_name is set, analysis is complete
+        if match.hero_name and match.hero_name != "pending":
+            status_msg = "completed"
+        else:
+            # Parsing done, but hero not selected yet (should redirect to hero selection)
+            status_msg = "completed"  # Parsing is complete
     else:
         # Still parsing
         status_msg = "parsing"
@@ -182,76 +190,51 @@ def parse_demo_background(
     db = SessionLocal()
     
     try:
-        # 1. Parse with ReplayParser
+        # 1. Parse with ReplayParser (NO analysis yet - just parsing)
         parser = ReplayParser()
-        print(f"DEBUG: ReplayParser initialized, calling parse_replay for {demo_path}", flush=True)
         logger.info(f"[BG] Step 1: Parsing demo file...")
-        # This might take time
         clarity_output = parser.parse_replay(demo_path)
-        print("DEBUG: parse_replay returned successfully", flush=True)
         logger.info(f"[BG] Step 1 OK: Parsed data keys: {list(clarity_output.keys())}")
         
-        # 2. Convert to Match model format
-        # This includes analysis
-        logger.info(f"[BG] Step 2: Converting clarity data to match format...")
-        print(f"DEBUG: Calling DemoConverter.convert_clarity_to_match", flush=True)
-        try:
-            match_data = DemoConverter.convert_clarity_to_match(
-                clarity_data=clarity_output,
-                player_id=player_id
-            )
-            logger.info(f"[BG] Step 2 OK: Match data keys: {list(match_data.keys())}")
-            logger.info(f"[BG] Step 2 OK: hero_name={match_data.get('hero_name')}, match_id={match_data.get('match_id')}")
-            print(f"DEBUG: DemoConverter returned successfully, hero_name={match_data.get('hero_name')}", flush=True)
-        except Exception as conv_error:
-            logger.error(f"[BG] Step 2 FAILED: DemoConverter error: {conv_error}", exc_info=True)
-            print(f"DEBUG: DemoConverter failed: {conv_error}", flush=True)
-            raise
-        
-        # 3. Update Match Record
-        logger.info(f"[BG] Step 3: Updating match record {match_record_id}...")
-        print(f"DEBUG: Querying match record {match_record_id}", flush=True)
+        # 2. Update Match Record with parsed data (keep hero_name="pending" for selection)
+        logger.info(f"[BG] Step 2: Updating match record {match_record_id}...")
         match = db.query(Match).filter(Match.id == match_record_id).first()
         if not match:
-            logger.error(f"[BG] Step 3 FAILED: Match record {match_record_id} not found!")
+            logger.error(f"[BG] Step 2 FAILED: Match record {match_record_id} not found!")
             raise ValueError(f"Match record {match_record_id} not found")
         
-        logger.info(f"[BG] Step 3: Match found, updating fields...")
-        # Check for existing real match_id to prevent duplicates?
-        real_match_id = match_data.get("match_id")
-        if not real_match_id:
-            logger.warning(f"[BG] Step 3: No match_id in match_data, using existing")
-            real_match_id = match.match_id
+        # Extract basic info from parsed data
+        real_match_id = clarity_output.get("match_id")
+        duration_minutes = clarity_output.get("duration_minutes", 0)
+        duration_seconds = clarity_output.get("duration_seconds", clarity_output.get("duration", 0))
         
-        # CRITICAL: Must save hero_name - this is how status endpoint detects completion
-        hero_name = match_data.get("hero_name")
-        if not hero_name or hero_name == "pending":
-            logger.error(f"[BG] Step 3 FAILED: Invalid hero_name: {hero_name}")
-            raise ValueError(f"Invalid hero_name: {hero_name}")
+        # Determine result from parsed data (if available)
+        result = clarity_output.get("result", "pending")
+        if result == "pending" and duration_seconds > 0:
+            # Try to determine from full_data
+            full_data = clarity_output.get("full_data", {})
+            if full_data.get("radiant_win") is not None:
+                result = "WIN" if full_data.get("radiant_win") else "LOSS"
         
-        logger.info(f"[BG] Step 3: Setting hero_name={hero_name}, match_id={real_match_id}")
-        match.match_id = str(real_match_id)
-        match.hero_name = hero_name  # Must not be None/empty
-        match.duration_minutes = match_data.get("duration_minutes", 0)
-        match.result = match_data.get("result", "LOSS")
+        # Update match with parsed data (keep hero_name="pending")
+        match.match_id = str(real_match_id) if real_match_id else match.match_id
+        match.duration_minutes = duration_minutes
+        match.result = result
         
-        # Enrich parsed data with status
-        p_data = match_data.get("parsed_data", {})
-        if isinstance(p_data, dict):
-            p_data["status"] = "completed"
-        match.parsed_data = p_data
+        # Save full parsed data (this contains all heroes)
+        parsed_data = clarity_output.copy()
+        parsed_data["status"] = "completed"  # Parsing completed, ready for hero selection
+        match.parsed_data = parsed_data
         
-        match.metrics = match_data.get("metrics", {})
-        match.advice = match_data.get("advice", [])
-        match.steam_id = match_data.get("steam_id")
+        # Keep hero_name="pending" - user will select hero via /select-hero endpoint
+        # Don't set metrics/advice yet - that happens in /select-hero after user chooses hero
         
-        logger.info(f"[BG] Step 4: Committing changes to database...")
-        print(f"DEBUG: About to commit, hero_name={match.hero_name}", flush=True)
+        logger.info(f"[BG] Step 3: Committing parsed data (hero_name stays 'pending' for selection)...")
         
         # Commit changes
         db.commit()
-        logger.info(f"[BG] ✓ Background parse success for match {real_match_id}, hero_name={match.hero_name}")
-        print(f"DEBUG: Commit successful! hero_name={match.hero_name}", flush=True)
+        logger.info(f"[BG] ✓ Background parse success for match {real_match_id}. Parsed data saved, awaiting hero selection.")
+        print(f"DEBUG: Commit successful! hero_name={match.hero_name}, heroes in data: {len(clarity_output.get('heroes', []))}", flush=True)
             
             # Optional: Email notification
             # try:
