@@ -21,8 +21,8 @@ class ClarityParser:
         """
         Execute Clarity JAR to parse a .dem file.
         
-        Execute: java -Xmx2G -jar /app/clarity.jar {demo_path} --json
-        Returns: Parsed JSON from stdout
+        Clarity writes JSON output to {demo_path}.json file, not stdout.
+        This method reads from that file after execution.
         
         Args:
             demo_path: Path to the .dem file.
@@ -31,20 +31,22 @@ class ClarityParser:
             Dictionary containing parsed match data.
             
         Raises:
-            FileNotFoundError: Demo file doesn't exist.
+            FileNotFoundError: Demo file doesn't exist or output file not found.
             TimeoutError: Parsing took >60s.
             json.JSONDecodeError: Invalid JSON from Clarity.
             RuntimeError: Non-zero return code.
         """
-        # 1. Check if file exists
-        if not os.path.exists(demo_path):
+        demo_file = Path(demo_path)
+        json_output_path = Path(f"{demo_path}.json")
+        
+        # 1. Check if demo file exists
+        if not demo_file.exists():
             logger.error(f"Demo file not found: {demo_path}")
-            raise FileNotFoundError(f"Demo file doesn't exist: {demo_path}")
+            raise FileNotFoundError(f"Demo file not found: {demo_path}")
         
         # 2. Check if JAR exists
         jar_path = str(cls.CLARITY_JAR)
         if not os.path.exists(jar_path):
-            # Try fallback path
             fallback_path = "/app/clarity.jar"
             if os.path.exists(fallback_path):
                 jar_path = fallback_path
@@ -52,67 +54,45 @@ class ClarityParser:
                 logger.error(f"Clarity JAR not found at {cls.CLARITY_JAR}")
                 raise FileNotFoundError(f"Clarity JAR not found at {cls.CLARITY_JAR}")
         
-        logger.info(f"Parsing demo file: {demo_path}")
-        logger.info(f"Using Clarity JAR: {jar_path}")
-        
-        # 3. Execute Java command
-        java_cmd = [
-            "java",
-            "-Xmx2G",
-            "-jar",
-            jar_path,
-            demo_path,
-            "--json"
-        ]
-        
         try:
-            logger.info(f"Running command: {' '.join(java_cmd)}")
+            logger.info(f"Parsing: {demo_path}")
             
-            # Run subprocess with timeout
+            # 3. Execute Clarity JAR
             result = subprocess.run(
-                java_cmd,
+                ["java", "-Xmx2G", "-jar", jar_path, str(demo_path), "--json"],
                 capture_output=True,
                 text=True,
-                timeout=cls.TIMEOUT_SECONDS,
-                check=False
+                timeout=cls.TIMEOUT_SECONDS
             )
             
             # 4. Check return code
             if result.returncode != 0:
                 error_msg = result.stderr[:500] if result.stderr else "Unknown error"
-                logger.error(f"Clarity parser failed with return code {result.returncode}")
+                logger.error(f"Clarity failed with return code {result.returncode}")
                 logger.error(f"Stderr: {error_msg}")
-                raise RuntimeError(
-                    f"Clarity parser failed with return code {result.returncode}: {error_msg}"
-                )
+                raise RuntimeError(f"Clarity failed: {error_msg}")
             
-            # 5. Parse JSON from stdout
-            stdout = result.stdout
-            if not stdout.strip():
-                logger.error("Clarity parser returned empty output")
-                raise RuntimeError("Clarity parser returned empty output")
+            # 5. KEY FIX: Read from FILE, not stdout!
+            if not json_output_path.exists():
+                logger.error(f"Clarity output file not found: {json_output_path}")
+                raise FileNotFoundError(f"Clarity output not found: {json_output_path}")
             
-            try:
-                parsed_data = json.loads(stdout)
-                logger.info("Successfully parsed Clarity JSON output")
-                return parsed_data
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse JSON from Clarity output: {e}")
-                logger.error(f"Output (first 500 chars): {stdout[:500]}")
-                raise json.JSONDecodeError(
-                    f"Invalid JSON from Clarity: {e}",
-                    stdout,
-                    e.pos
-                )
-                
+            # Read and parse JSON from file
+            with open(json_output_path, 'r', encoding='utf-8') as f:
+                parsed_data = json.load(f)
+            
+            num_players = len(parsed_data.get('players', []))
+            logger.info(f"✓ Parsed: {num_players} players found")
+            return parsed_data
+        
         except subprocess.TimeoutExpired:
             logger.error(f"Clarity parser timeout after {cls.TIMEOUT_SECONDS} seconds")
-            raise TimeoutError(
-                f"Parsing took longer than {cls.TIMEOUT_SECONDS} seconds"
-            )
+            raise TimeoutError("Parsing timeout >60s")
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON from Clarity: {e}")
+            raise ValueError(f"Invalid JSON: {e}")
         except FileNotFoundError:
-            logger.error("Java executable not found in PATH")
-            raise RuntimeError("Java executable not found in PATH")
+            raise
         except Exception as e:
             logger.error(f"Unexpected error during parsing: {e}")
             raise RuntimeError(f"Parsing failed: {str(e)}")
