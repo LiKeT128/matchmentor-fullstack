@@ -95,56 +95,10 @@ def parse_with_manta(file_path: str) -> Dict[str, Any]:
     Raises:
         Exception: If manta parser is not available or parsing fails.
     """
-    try:
-        # Try importing manta
-        try:
-            from manta_core import parse_match
-        except ImportError:
-            logger.warning("manta_core not available, fallback unavailable")
-            raise Exception("Fallback parser not available")
-        
-        logger.info(f"Parsing with manta: {file_path}")
-        
-        # Parse with manta
-        match_data = parse_match(file_path)
-        
-        # Extract core fields
-        return {
-            "match_id": match_data.get("match_id", "unknown"),
-            "duration": match_data.get("duration", 0),
-            "duration_minutes": int(match_data.get("duration", 0) // 60),
-            "hero": match_data.get("player_hero", "Unknown"),
-            "result": "win" if match_data.get("winner") else "loss",
-            "player_team": match_data.get("player_team", "radiant"),
-            "winner": match_data.get("winner", "radiant"),
-            "kills": match_data.get("kills", 0),
-            "deaths": match_data.get("deaths", 0),
-            "assists": match_data.get("assists", 0),
-            "gpm": match_data.get("gpm", 0),
-            "xpm": match_data.get("xpm", 0),
-            "last_hits": match_data.get("last_hits", 0),
-            "denies": match_data.get("denies", 0),
-            "hero_damage": match_data.get("hero_damage", 0),
-            "tower_damage": match_data.get("tower_damage", 0),
-            "hero_healing": match_data.get("hero_healing", 0),
-            "items": match_data.get("items", []),
-            "hero_name": match_data.get("player_hero", "Unknown"), # Ensure hero_name is present
-            "heroes": match_data.get("heroes", []), # Extract heroes list if available
-            "item_timings": {},
-            "parsing_method": "manta_fallback",
-            "warning": (
-                "Limited analysis available. "
-                "For full analytics, try a smaller replay (<50MB) "
-                "or upgrade to premium tier."
-            )
-        }
-    
-    except ImportError:
-        logger.error("Manta parser not available")
-        raise Exception("No fallback parser available")
-    except Exception as e:
-        logger.error(f"Manta parsing failed: {e}")
-        raise Exception(f"Both parsers failed: {e}")
+    # Manta parser is not currently installed/available
+    # This is a placeholder for potential future fallback implementation
+    logger.warning("Manta fallback parser called but not available in current deployment")
+    raise Exception("Fallback parser not available. Please ensure the replay file is valid and compatible.")
 
 
 class ReplayParser:
@@ -385,64 +339,94 @@ class ReplayParser:
                 
                 # Check JSON file size and content
                 json_size = os.path.getsize(json_output_path)
-                logger.info(f"JSON file found. Size: {json_size} bytes")
-                
-                # CRITICAL FIX: Detect incomplete parsing from "unknown message" warnings
-                if json_size < 50000:  # Less than 50KB likely means incomplete parsing
-                    logger.warning(f"JSON output too small ({json_size} bytes). Parsing may be incomplete due to unknown messages.")
-                    
-                    # Try to read and validate the JSON content
-                    try:
-                        with open(json_output_path, 'r') as f:
-                            json_content = f.read()
-                            
-                        # Check for common incomplete parsing indicators
-                        if (("unknown message" in json_content.lower() or 
-                            len(json_content) < 1000 or
-                            '"players"' not in json_content)):
-                            logger.error("Detected incomplete parsing - will trigger fallback")
-                            raise Exception("Clarity parsing incomplete - too many unknown messages")
-                            
-                    except Exception as e:
-                        logger.error(f"Failed to validate JSON content: {e}")
-                        raise Exception("Clarity parsing incomplete - invalid JSON output")
+                logger.info(f"JSON file found. Size: {json_size} bytes ({json_size / 1024:.1f} KB)")
                 
                 # Check if JSON file is empty
                 if json_size == 0:
                     print("DEBUG: JSON file is empty (0 bytes)!", flush=True)
                     raise Exception("Clarity produced empty output.")
 
-                # Peek at content
+                # Read stderr to check for warnings/errors
+                err_content = ""
+                try:
+                    if os.path.exists(err_output_path):
+                        with open(err_output_path, "r", encoding="utf-8", errors="ignore") as ef:
+                            err_content = ef.read()
+                            if err_content.strip():
+                                logger.warning(f"Clarity stderr (first 1000 chars): {err_content[:1000]}")
+                                print(f"DEBUG: Clarity stderr: {err_content[:500]}", flush=True)
+                except Exception as e:
+                    logger.debug(f"Could not read stderr: {e}")
+
+                # Peek at JSON content for debugging
                 with open(json_output_path, 'r', errors='ignore') as f:
-                    preview = f.read(200)
-                    print(f"DEBUG: JSON Preview: {preview}", flush=True)
+                    preview_start = f.read(500)
+                    f.seek(max(0, json_size - 500))  # Seek to near end
+                    preview_end = f.read(500)
+                    print(f"DEBUG: JSON Start (500 chars): {preview_start[:500]}", flush=True)
+                    print(f"DEBUG: JSON End (500 chars): ...{preview_end[-500:]}", flush=True)
+                    logger.info(f"JSON preview - Start: {preview_start[:200]}... End: ...{preview_end[-200:]}")
 
                 # Parse JSON from file
                 # Skip prefix noise (warnings, logs) to find start of JSON
                 logger.info("Reading output file and searching for JSON start '{'")
                 content = ""
-                with open(json_output_path, "r", encoding="utf-8") as f:
+                with open(json_output_path, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
                 
-                # Check for suspiciously small output (e.g. only error logs)
-                if len(content) < 5000: # 5KB is too small for a match
-                    print("DEBUG: Output too small, likely only contains error logs.", flush=True)
-                    logger.warning(f"Output too small ({len(content)} bytes). Likely parsing failure.")
-                    # Force fallback
-                    raise Exception("Output suspiciously small - likely parsing failure")
+                logger.info(f"Total content length: {len(content)} bytes")
 
+                # Find JSON start
                 json_start = content.find('{')
                 if json_start == -1:
-                    logger.error(f"No JSON found in output. Content start: {content[:500]}")
+                    logger.error(f"No JSON object found in output. Content start: {content[:1000]}")
+                    print(f"DEBUG: No JSON found. Full content: {content[:2000]}", flush=True)
                     raise Exception("Clarity output contained no JSON data")
                 
+                # Log if there's noise before JSON
+                if json_start > 0:
+                    logger.warning(f"Found {json_start} bytes of non-JSON prefix (warnings/logs): {content[:json_start][:200]}")
+                
+                # Try to parse JSON
                 try:
                     json_str = content[json_start:]
                     raw_data = json.loads(json_str)
+                    logger.info("✓ JSON successfully parsed from file")
                 except json.JSONDecodeError as je:
-                    print(f"DEBUG: JSON decode failed: {je}", flush=True)
-                    raise Exception("Invalid JSON produced by Clarity")
-                logger.info("JSON successfully parsed from file")
+                    logger.error(f"JSON decode failed at position {je.pos}: {je.msg}")
+                    logger.error(f"JSON snippet at error: {json_str[max(0, je.pos-100):je.pos+100]}")
+                    print(f"DEBUG: JSON decode failed: {je}. Snippet: {json_str[:1000]}", flush=True)
+                    raise Exception(f"Invalid JSON produced by Clarity: {je.msg}")
+                
+                # CONTENT-BASED VALIDATION: Check for required fields instead of size
+                logger.info("Validating parsed JSON structure...")
+                validation_errors = []
+                
+                if not isinstance(raw_data, dict):
+                    validation_errors.append("JSON root is not an object/dict")
+                
+                # Check for players array - most critical field
+                if "players" not in raw_data:
+                    validation_errors.append("Missing 'players' key in JSON")
+                elif not isinstance(raw_data.get("players"), list):
+                    validation_errors.append("'players' is not a list")
+                elif len(raw_data.get("players", [])) == 0:
+                    validation_errors.append("'players' array is empty")
+                elif len(raw_data.get("players", [])) != 10:
+                    logger.warning(f"Expected 10 players, got {len(raw_data['players'])}")
+                
+                # Check for match duration
+                if "duration" not in raw_data and "duration_seconds" not in raw_data:
+                    validation_errors.append("Missing duration information")
+                
+                if validation_errors:
+                    error_msg = "; ".join(validation_errors)
+                    logger.error(f"JSON validation failed: {error_msg}")
+                    logger.error(f"JSON keys present: {list(raw_data.keys()) if isinstance(raw_data, dict) else 'N/A'}")
+                    print(f"DEBUG: Validation errors: {error_msg}", flush=True)
+                    raise Exception(f"Clarity output is invalid: {error_msg}")
+                
+                logger.info(f"✓ JSON validation passed. Players: {len(raw_data['players'])}, Keys: {list(raw_data.keys())[:10]}")
                 
                 # Log memory after successful parse
                 log_memory_status()
@@ -550,8 +534,26 @@ class ReplayParser:
                 
             except Exception as manta_e:
                 logger.error(f"Manta fallback also failed: {manta_e}")
-                # CRITICAL FIX: Don't return minimal data - raise proper exception
-                raise Exception(f"Replay parsing completely failed. Clarity error: {str(e)}. Manta fallback error: {str(manta_e)}")
+                # Provide detailed, actionable error message
+                clarity_error = str(e)
+                manta_error = str(manta_e)
+                
+                # Build comprehensive error message
+                error_details = f"Replay parsing failed.\n\nClarity Error: {clarity_error}"
+                
+                # Only mention Manta if it's not just "not available"
+                if "not available" not in manta_error.lower():
+                    error_details += f"\n\nManta Fallback Error: {manta_error}"
+                
+                # Add actionable guidance
+                if "invalid" in clarity_error.lower() or "Missing" in clarity_error:
+                    error_details += "\n\nPossible causes:\n- Corrupted replay file\n- Unsupported replay version\n- File was interrupted during download"
+                    error_details += "\n\nPlease try:\n1. Re-download the replay from Dota 2\n2. Verify the file opens in Dota 2 client\n3. Upload a different replay file"
+                elif json_size < 1000:
+                    error_details += f"\n\nThe parser produced very little output ({json_size} bytes), which suggests the replay file may be incompatible with the current parser version."
+                
+                logger.error(f"Complete parsing failure. Error details: {error_details}")
+                raise Exception(error_details)
     
     def _normalize_data(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """

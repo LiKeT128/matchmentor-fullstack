@@ -260,11 +260,30 @@ export const DemoUpload: React.FC<DemoUploadProps> = ({ onUploadComplete }) => {
 
             {/* Error Message */}
             {error && (
-                <div className="mt-6 bg-red-500/20 border border-red-500/50 text-red-400 p-4 rounded-lg flex items-center gap-3">
-                    <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <span>{error}</span>
+                <div className="mt-6 bg-red-500/20 border border-red-500/50 text-red-400 p-4 rounded-lg">
+                    <div className="flex items-start gap-3">
+                        <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <div className="flex-1">
+                            {/* Handle multiline errors from backend */}
+                            {error.split('\n').map((line, idx) => (
+                                <p key={idx} className={`${idx > 0 ? 'mt-2' : ''} ${line.startsWith('- ') ? 'ml-4' : ''}`}>
+                                    {line}
+                                </p>
+                            ))}
+                            {error.toLowerCase().includes('parsing failed') && (
+                                <div className="mt-3 pt-3 border-t border-red-500/30 text-sm">
+                                    <p className="font-semibold mb-1">💡 Troubleshooting Tips:</p>
+                                    <ul className="list-disc list-inside space-y-1 text-red-300">
+                                        <li>Check the Railway logs for detailed debugging information</li>
+                                        <li>Verify the replay file opens correctly in Dota 2</li>
+                                        <li>Try a different replay file to rule out file corruption</li>
+                                    </ul>
+                                </div>
+                            )}
+                        </div>
+                    </div>
                 </div>
             )}
 
