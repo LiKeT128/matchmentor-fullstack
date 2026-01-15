@@ -769,21 +769,18 @@ class MatchAnalyzer:
         duration = data.get("duration_minutes", 30)
         
         if lh_t and len(lh_t) > 10:
-            logger.debug("[LANE_METRICS] Found real time-series data")
-            idx = 10 if len(lh_t) < 120 else 600  # 10 min mark (10 seconds per tick)
+            # ... existing logic ...
+            pass
             
-            # Get values at 10 minutes
-            lh_at_10 = lh_t[idx] if len(lh_t) > idx else lh_t[-1]
-            gold_at_10 = gold_t[idx] if gold_t and len(gold_t) > idx else (data.get("gold_per_min", 0) * 10)
-            xp_at_10 = xp_t[idx] if xp_t and len(xp_t) > idx else (data.get("xp_per_min", 0) * 10)
-            
-            # Estimate deaths in lane from total deaths (assume 25% in lane)
+        # 2. Check for direct parsed metric (from ODotaParserClient)
+        elif "lh_at_10" in data:
+            logger.debug("[LANE_METRICS] Using direct lh_at_10 metric")
+            lh_at_10 = data["lh_at_10"]
+            gold_at_10 = data.get("gold_at_10") or (data.get("gold_per_min", 0) * 10)
+            xp_at_10 = data.get("xp_at_10") or (data.get("xp_per_min", 0) * 10)
             total_deaths = data.get("deaths", 0)
             deaths_in_lane = max(0, total_deaths // 4)
-            
-            # Calculate lane control based on LH vs expected
-            expected_lh = 50  # Baseline expectation
-            lane_control_pct = min(100, max(0, (lh_at_10 / expected_lh) * 100))
+            lane_control_pct = min(100, max(0, (lh_at_10 / 50) * 100))
             
             return {
                 "lh_at_10": lh_at_10,
@@ -793,7 +790,7 @@ class MatchAnalyzer:
                 "lane_control_pct": lane_control_pct
             }
 
-        # 2. Check for OpenDota benchmarks
+        # 3. Check for OpenDota benchmarks
         benchmarks = data.get("benchmarks", {})
         if "lhten" in benchmarks:
             logger.debug("[LANE_METRICS] Found OpenDota benchmarks")

@@ -225,7 +225,7 @@ class OpenDotaParserClient:
                     
                     # Detailed Metrics for Analysis
                     "lh_at_10": stat_10m.get('lh', 0),
-                    "purchase_log": purchase_log,
+                    "item_timings": {item['key']: item['time'] for item in purchase_log},
                     "obs_placed": final_stats.get('obs_placed', 0),
                     "sen_placed": final_stats.get('sen_placed', 0),
                     "camps_stacked": final_stats.get('camps_stacked', 0),
