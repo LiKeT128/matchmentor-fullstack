@@ -515,11 +515,21 @@ class ReplayParser:
             print(f"DEBUG: Clarity failed ({type(e).__name__}: {e}). Trying Manta fallback...", flush=True)
             try:
                 # Attempt fallback to Manta parser
-                return parse_with_manta(file_path)
+                fallback_result = parse_with_manta(file_path)
+                
+                # CRITICAL FIX: Validate fallback result
+                if (not fallback_result or 
+                    fallback_result.get("match_id") in ["unknown", None] or
+                    fallback_result.get("duration_minutes", 0) == 0):
+                    raise Exception("Manta fallback returned invalid data")
+                
+                logger.info("Manta fallback succeeded")
+                return fallback_result
+                
             except Exception as manta_e:
                 logger.error(f"Manta fallback also failed: {manta_e}")
-                # Raise the original Clarity error but mention Manta failed too
-                raise Exception(f"Parsing failed. Clarity error: {str(e)}. Manta fallback error: {str(manta_e)}")
+                # CRITICAL FIX: Don't return minimal data - raise proper exception
+                raise Exception(f"Replay parsing completely failed. Clarity error: {str(e)}. Manta fallback error: {str(manta_e)}")
     
     def _normalize_data(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """

@@ -372,6 +372,21 @@ async def upload_match(
         parsed = parser.parse_replay(temp_file)
         logger.info("Parser returned successfully.")
         
+        # CRITICAL FIX: Validate that parsing actually succeeded
+        # Check if we have meaningful data (not just status/filename)
+        if not parsed or len(parsed.keys()) < 5:
+            raise Exception("Parser returned empty or incomplete data")
+        
+        # Check for failure indicators
+        if (parsed.get("match_id") in ["unknown", None] or 
+            parsed.get("hero_name") in ["unknown", None] or
+            parsed.get("duration_minutes", 0) == 0):
+            raise Exception("Parser failed to extract basic match information")
+        
+        # Log what we actually got
+        logger.info(f"Parser returned data with keys: {list(parsed.keys())}")
+        logger.info(f"Match ID: {parsed.get('match_id')}, Hero: {parsed.get('hero_name')}, Duration: {parsed.get('duration_minutes')}")
+        
         # FALLBACK: If parser found no heroes OR mostly "unknown" heroes, OR "unknown" positions (lanes), try fetching from OpenDota
         heroes = parsed.get("heroes", [])
         unknown_name_count = sum(1 for h in heroes if "unknown" in h.get("hero_name", "unknown").lower())
