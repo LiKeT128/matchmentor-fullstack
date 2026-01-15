@@ -133,6 +133,8 @@ class OpenDotaParserClient:
             if interval_events:
                 final_stats = interval_events[-1]
                 
+                hero_id = final_stats.get('hero_id')
+                
                 # 1. Try to use hero_id with canonical mapping if available
                 from app.services.hero_mapping import HERO_MAP
                 if hero_id and hero_id in HERO_MAP:
@@ -176,8 +178,6 @@ class OpenDotaParserClient:
                             s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', short_name)
                             snake_case = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
                             hero_name = f"npc_dota_hero_{snake_case}"
-
-                hero_id = final_stats.get('hero_id')
                 
                 # --- Metrics Extraction ---
                 # 1. Timeline stats (e.g. at 10 mins)
