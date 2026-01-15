@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 import { HeroSelectionModal } from '../components/HeroSelectionModal';
-// import { DemoUpload } from '../components/DemoUpload';  // Temporarily disabled
+import { DemoUpload } from '../components/DemoUpload';
 
 export const Upload = () => {
     // Lookup State
@@ -49,10 +49,9 @@ export const Upload = () => {
         navigate(`/results/${heroData.match_id || pendingMatchId}`);
     };
 
-    // Temporarily disabled - demo upload feature not available
-    // const handleDemoUploadComplete = (matchId: string) => {
-    //     navigate(`/results/${matchId}`);
-    // };
+    const handleDemoUploadComplete = (matchId: string) => {
+        navigate(`/results/${matchId}`);
+    };
 
     return (
         <div className="min-h-screen bg-gray-900 pt-24 pb-12">
@@ -69,10 +68,12 @@ export const Upload = () => {
                 <div className="flex bg-gray-800 p-1 rounded-xl mb-8">
                     <button
                         onClick={() => { setActiveTab('upload'); setError(null); }}
-                        disabled={true}
-                        className="flex-1 py-3 rounded-lg font-semibold text-sm bg-gray-700 text-gray-500 cursor-not-allowed opacity-60"
+                        className={`flex-1 py-3 rounded-lg font-semibold text-sm transition-all ${activeTab === 'upload'
+                            ? 'bg-gray-700 text-white shadow-lg'
+                            : 'text-gray-400 hover:text-white'
+                            }`}
                     >
-                        Upload .dem File (Coming Soon)
+                        Upload .dem File
                     </button>
                     <button
                         onClick={() => { setActiveTab('lookup'); setError(null); }}
@@ -86,25 +87,7 @@ export const Upload = () => {
                 </div>
 
                 {activeTab === 'upload' ? (
-                    <div className="bg-gray-800/50 p-12 rounded-xl border border-gray-700 text-center">
-                        <div className="w-20 h-20 rounded-full bg-yellow-500/20 flex items-center justify-center mx-auto mb-6">
-                            <svg className="w-10 h-10 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                            </svg>
-                        </div>
-                        <h3 className="text-xl font-bold text-white mb-3">
-                            Demo Upload Temporarily Unavailable
-                        </h3>
-                        <p className="text-gray-400 mb-4 max-w-md mx-auto">
-                            We're working on updating our replay parser to support the latest Dota 2 formats.
-                        </p>
-                        <p className="text-teal-400 font-semibold flex items-center justify-center gap-2">
-                            <span>Please use "Search Match ID" instead</span>
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                            </svg>
-                        </p>
-                    </div>
+                    <DemoUpload onUploadComplete={handleDemoUploadComplete} />
                 ) : (
                     /* Lookup UI */
                     <div className="bg-gray-800/50 p-8 rounded-xl border border-gray-700">
