@@ -133,27 +133,72 @@ class OpenDotaParserClient:
             if interval_events:
                 final_stats = interval_events[-1]
                 
-                # Check 'hero' field first (legacy), then fallback to 'unit'
+                # Legacy 'hero' field or fallback to 'unit'
                 hero_name = final_stats.get('hero')
                 
                 # If hero_name is missing, try to derive from 'unit' (e.g. CDOTA_Unit_Hero_Name)
                 if not hero_name and final_stats.get('unit'):
                     unit_name = final_stats.get('unit', '')
                     if unit_name.startswith('CDOTA_Unit_Hero_'):
-                        # Remove prefix
                         short_name = unit_name[len('CDOTA_Unit_Hero_'):]
-                        # Convert CamelCase to snake_case (e.g. QueenOfPain -> queen_of_pain)
-                        import re
-                        s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', short_name)
-                        snake_case = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
-                        hero_name = f"npc_dota_hero_{snake_case}"
-                
-                # Some special cases might need manual fixups if the auto-conversion fails
-                # e.g. Nevermore -> shadow_fiend (though usually they match internal names)
-                # For now, we trust the internal names + npc_dota_hero prefix match widely
-                
+                        
+                        # Custom mapping for known inconsistencies between internal class names and Web API names
+                        # This avoids "Unknown" hero issues in frontend
+                        CUSTOM_MAPPINGS = {
+                            "AntiMage": "antimage",
+                            "OgreMagi": "ogre_magi",
+                            "Windrunner": "windrunner", # Frontend expects windranger or windrunner? OpenDota uses windrunner
+                            "Necrolyte": "necrolyte",
+                            "QueenOfPain": "queenofpain",
+                            "ShadowFiend": "shadow_fiend",
+                            "VengefulSpirit": "vengefulspirit",
+                            "DoomBringer": "doom_bringer",
+                            "SkeletonKing": "wraith_king", # Modern Dota
+                            "Zuus": "zuus",
+                            "Nevermore": "shadow_fiend",
+                            "ObsidianDestroyer": "obsidian_destroyer",
+                            "LifeStealer": "life_stealer",
+                            # Add more as discovered
+                        }
+                        
+                        if short_name in CUSTOM_MAPPINGS:
+                            hero_name = f"npc_dota_hero_{CUSTOM_MAPPINGS[short_name]}"
+                        else:
+                            # Default snake_case conversion
+                            import re
+                            s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', short_name)
+                            snake_case = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+                            hero_name = f"npc_dota_hero_{snake_case}"
+
                 hero_id = final_stats.get('hero_id')
                 
+                # --- Metrics Extraction ---
+                # 1. Timeline stats (e.g. at 10 mins)
+                # Find interval event closest to 10 minutes (600s)
+                # Events are roughly sorted by time (or we can assume they are)
+                stat_10m = {}
+                for e in slot_events:
+                    if e.get('type') == 'interval' and e.get('time', 0) >= 600:
+                         stat_10m = e
+                         break
+                
+                # 2. Item Timings
+                # Filter purchase events
+                purchase_log = []
+                unique_items = set()
+                # Sort events by time just in case
+                sorted_events = sorted(slot_events, key=lambda x: x.get('time', 0))
+                
+                for e in sorted_events:
+                    if e.get('type') == 'DOTA_COMBATLOG_PURCHASE':
+                         item_key = e.get('valuename') # item_tango
+                         if item_key and item_key not in unique_items:
+                             unique_items.add(item_key)
+                             purchase_log.append({
+                                 "key": item_key,
+                                 "time": e.get('time', 0)
+                             })
+
                 player_data = {
                     "player_slot": slot,
                     "hero_id": hero_id,
@@ -170,6 +215,16 @@ class OpenDotaParserClient:
                     "hero_damage": final_stats.get('hero_damage', 0),
                     "tower_damage": final_stats.get('tower_damage', 0),
                     "hero_healing": final_stats.get('hero_healing', 0),
+                    
+                    # Detailed Metrics for Analysis
+                    "lh_at_10": stat_10m.get('lh', 0),
+                    "purchase_log": purchase_log,
+                    "obs_placed": final_stats.get('obs_placed', 0),
+                    "sen_placed": final_stats.get('sen_placed', 0),
+                    "camps_stacked": final_stats.get('camps_stacked', 0),
+                    "rune_pickups": final_stats.get('rune_pickups', 0),
+                    "teamfight_participation": final_stats.get('teamfight_participation', 0),
+                    "stuns": final_stats.get('stuns', 0),
                 }
                 
                 match_data["players"].append(player_data)
