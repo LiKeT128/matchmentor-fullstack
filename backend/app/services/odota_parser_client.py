@@ -49,16 +49,20 @@ class OpenDotaParserClient:
         logger.info(f"Parsing replay: {file_path} ({file_size_mb:.1f}MB)")
         
         try:
-            # Send .dem file to parser with streaming
+            # Read file into memory to ensure Content-Length header is set correctly
+            # OpenDota parser (Java HttpServer) requires strictly valid streams and often fails with chunked encoding
             with open(file_path, 'rb') as f:
-                # Use stream=True to handle large responses without buffering everything
-                response = requests.post(
-                    self.parser_url,
-                    data=f,
-                    headers={'Content-Type': 'application/octet-stream'},
-                    timeout=timeout,
-                    stream=True
-                )
+                file_content = f.read()
+            
+            logger.info(f"Uploading {len(file_content)} bytes to parser...")
+            
+            # Send raw bytes (no streaming = no chunked encoding)
+            response = requests.post(
+                self.parser_url,
+                data=file_content,
+                headers={'Content-Type': 'application/octet-stream'},
+                timeout=timeout
+            )
             
             if response.status_code != 200:
                 # Read a bit of the error response if possible
@@ -70,7 +74,9 @@ class OpenDotaParserClient:
                 logger.error(f"{error_msg}: {error_text}")
                 raise Exception(error_msg)
             
-            # Parse line-delimited JSON response via streaming
+            # Parse line-delimited JSON response
+            # Since we aren't streaming request anymore, we can just read text
+            # But the response is still line-delimited JSON
             events = []
             for line in response.iter_lines():
                 if line:
@@ -96,36 +102,19 @@ class OpenDotaParserClient:
             logger.error(f"Parsing failed: {str(e)}")
             raise Exception(f"Replay parsing failed: {str(e)}")
     
-    def _parse_response(self, response_text: str) -> List[Dict]:
-        """Parse line-delimited JSON response into list of events."""
-        events = []
-        for line in response_text.strip().split('\n'):
-            if line.strip():
-                try:
-                    events.append(json.loads(line))
-                except json.JSONDecodeError as e:
-                    logger.warning(f"Skipping invalid JSON line: {line[:100]}... ({e})")
-        return events
-    
     def _convert_events_to_match(self, events: List[Dict]) -> Dict[str, Any]:
         """
         Convert line-delimited events to structured match data.
-        
-        OpenDota parser outputs events like:
-        - {"type": "interval", "slot": 0, "kills": 5, ...}
-        - {"type": "DOTA_COMBATLOG_PURCHASE", "slot": 0, "key": "item_blink", "time": 600}
-        - etc.
-        
-        We need to aggregate these into our Match schema.
         """
         match_data = {
             "match_id": None,
             "duration": 0,
             "radiant_win": None,
             "players": [],
+            "heroes": [], # Legacy compatibility: List of found heroes
             "objectives": [],
             "teamfights": [],
-            "raw_events": events  # Store for detailed analysis
+            "raw_events": events
         }
         
         # Group events by player slot
@@ -144,10 +133,13 @@ class OpenDotaParserClient:
             if interval_events:
                 final_stats = interval_events[-1]
                 
+                hero_name = final_stats.get('hero')
+                hero_id = final_stats.get('hero_id')
+                
                 player_data = {
                     "player_slot": slot,
-                    "hero_id": final_stats.get('hero_id'),
-                    "hero": final_stats.get('hero'),
+                    "hero_id": hero_id,
+                    "hero": hero_name,
                     "kills": final_stats.get('kills', 0),
                     "deaths": final_stats.get('deaths', 0),
                     "assists": final_stats.get('assists', 0),
@@ -163,6 +155,14 @@ class OpenDotaParserClient:
                 }
                 
                 match_data["players"].append(player_data)
+                
+                # Add to heroes summary list
+                if hero_name:
+                    match_data["heroes"].append({
+                        "hero_name": hero_name,
+                        "player_slot": slot,
+                        "hero_id": hero_id
+                    })
         
         # Extract match metadata from first event or metadata event
         for event in events:
