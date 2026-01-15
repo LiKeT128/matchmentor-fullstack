@@ -7,7 +7,7 @@ from app.api.payments import router as payments_router
 from app.api.bookings import router as bookings_router
 from app.api.sessions import router as sessions_router
 from app.api.compat import router as compat_router
-from app.api.demo import router as demo_router
+# from app.api.demo import router as demo_router  # Temporarily disabled - Clarity parser requires building from source
 
 __all__ = [
     "auth_router",
@@ -17,5 +17,5 @@ __all__ = [
     "bookings_router",
     "sessions_router",
     "compat_router",
-    "demo_router",
+    # "demo_router",  # Temporarily disabled
 ]
