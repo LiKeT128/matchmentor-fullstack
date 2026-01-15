@@ -13,8 +13,9 @@ if [ -f "parser.jar" ]; then
     echo "Parser JAR found: $(ls -lh parser.jar)"
     
     # Start parser service in background
+    # Use explicit memory limits and expose logs to stdout
     echo "Starting OpenDota parser on port $PARSER_PORT..."
-    java -jar parser.jar $PARSER_PORT > /tmp/parser.log 2>&1 &
+    java -Xmx1536M -Xms256M -jar parser.jar $PARSER_PORT &
     PARSER_PID=$!
     echo "Parser started with PID: $PARSER_PID"
     

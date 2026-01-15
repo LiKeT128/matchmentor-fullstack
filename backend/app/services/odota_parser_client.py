@@ -49,22 +49,36 @@ class OpenDotaParserClient:
         logger.info(f"Parsing replay: {file_path} ({file_size_mb:.1f}MB)")
         
         try:
-            # Send .dem file to parser
+            # Send .dem file to parser with streaming
             with open(file_path, 'rb') as f:
+                # Use stream=True to handle large responses without buffering everything
                 response = requests.post(
                     self.parser_url,
                     data=f,
                     headers={'Content-Type': 'application/octet-stream'},
-                    timeout=timeout
+                    timeout=timeout,
+                    stream=True
                 )
             
             if response.status_code != 200:
+                # Read a bit of the error response if possible
+                try:
+                    error_text = response.text[:500]
+                except:
+                    error_text = "Unknown error"
                 error_msg = f"Parser returned HTTP {response.status_code}"
-                logger.error(f"{error_msg}: {response.text[:500]}")
+                logger.error(f"{error_msg}: {error_text}")
                 raise Exception(error_msg)
             
-            # Parse line-delimited JSON response
-            events = self._parse_response(response.text)
+            # Parse line-delimited JSON response via streaming
+            events = []
+            for line in response.iter_lines():
+                if line:
+                    try:
+                        events.append(json.loads(line))
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"Skipping invalid JSON line: {line[:100]}... ({e})")
+            
             logger.info(f"✓ Parsed {len(events)} events from replay")
             
             # Convert events to structured match data
@@ -72,10 +86,12 @@ class OpenDotaParserClient:
             
             return match_data
             
+        except requests.exceptions.ChunkedEncodingError:
+            raise Exception("Parser connection broken (Response ended prematurely) - likely parser crash")
         except requests.Timeout:
             raise Exception(f"Parser timeout after {timeout}s - file may be too large or complex")
         except requests.ConnectionError:
-            raise Exception("Parser service unavailable - is it running?")
+            raise Exception("Parser service unavailable - failed to connect")
         except Exception as e:
             logger.error(f"Parsing failed: {str(e)}")
             raise Exception(f"Replay parsing failed: {str(e)}")
