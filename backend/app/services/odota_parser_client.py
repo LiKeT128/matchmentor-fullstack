@@ -133,13 +133,17 @@ class OpenDotaParserClient:
             if interval_events:
                 final_stats = interval_events[-1]
                 
-                # Legacy 'hero' field or fallback to 'unit'
-                hero_name = final_stats.get('hero')
-                
-                # If hero_name is missing, try to derive from 'unit' (e.g. CDOTA_Unit_Hero_Name)
-                if not hero_name and final_stats.get('unit'):
+                # 1. Try to use hero_id with canonical mapping if available
+                from app.services.hero_mapping import HERO_MAP
+                if hero_id and hero_id in HERO_MAP:
+                    hero_name = HERO_MAP[hero_id]
+                else:
+                    # 2. Fallback to 'unit' field (legacy/parser bug workaround)
+                    # If hero_name is missing/invalid, try to derive from 'unit' (e.g. CDOTA_Unit_Hero_Name)
                     unit_name = final_stats.get('unit', '')
-                    if unit_name.startswith('CDOTA_Unit_Hero_'):
+                    hero_name = final_stats.get('hero') # Preserve original if unit fails
+                    
+                    if unit_name and unit_name.startswith('CDOTA_Unit_Hero_'):
                         short_name = unit_name[len('CDOTA_Unit_Hero_'):]
                         
                         # Custom mapping for known inconsistencies between internal class names and Web API names
@@ -147,24 +151,27 @@ class OpenDotaParserClient:
                         CUSTOM_MAPPINGS = {
                             "AntiMage": "antimage",
                             "OgreMagi": "ogre_magi",
-                            "Windrunner": "windrunner", # Frontend expects windranger or windrunner? OpenDota uses windrunner
+                            "Windrunner": "windrunner", 
                             "Necrolyte": "necrolyte",
                             "QueenOfPain": "queenofpain",
                             "ShadowFiend": "shadow_fiend",
                             "VengefulSpirit": "vengefulspirit",
                             "DoomBringer": "doom_bringer",
-                            "SkeletonKing": "wraith_king", # Modern Dota
+                            "SkeletonKing": "wraith_king", 
                             "Zuus": "zuus",
                             "Nevermore": "shadow_fiend",
                             "ObsidianDestroyer": "obsidian_destroyer",
                             "LifeStealer": "life_stealer",
-                            # Add more as discovered
+                            "Magnataur": "magnataur", 
+                            "WinterWyvern": "winter_wyvern",
+                            "Furion": "furion",
+                            "Wisp": "wisp", # Io
                         }
                         
                         if short_name in CUSTOM_MAPPINGS:
                             hero_name = f"npc_dota_hero_{CUSTOM_MAPPINGS[short_name]}"
                         else:
-                            # Default snake_case conversion
+                            # Default snake_case conversion: WinterWyvern -> winter_wyvern
                             import re
                             s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', short_name)
                             snake_case = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
