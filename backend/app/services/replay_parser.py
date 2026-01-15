@@ -383,10 +383,32 @@ class ReplayParser:
                      print("DEBUG: JSON file NOT found!", flush=True)
                      raise Exception("Clarity produced no output file.")
                 
-                start_size = os.path.getsize(json_output_path)
-                print(f"DEBUG: JSON file found. Size: {start_size} bytes", flush=True)
+                # Check JSON file size and content
+                json_size = os.path.getsize(json_output_path)
+                logger.info(f"JSON file found. Size: {json_size} bytes")
                 
-                if start_size == 0:
+                # CRITICAL FIX: Detect incomplete parsing from "unknown message" warnings
+                if json_size < 50000:  # Less than 50KB likely means incomplete parsing
+                    logger.warning(f"JSON output too small ({json_size} bytes). Parsing may be incomplete due to unknown messages.")
+                    
+                    # Try to read and validate the JSON content
+                    try:
+                        with open(json_output_path, 'r') as f:
+                            json_content = f.read()
+                            
+                        # Check for common incomplete parsing indicators
+                        if (("unknown message" in json_content.lower() or 
+                            len(json_content) < 1000 or
+                            '"players"' not in json_content)):
+                            logger.error("Detected incomplete parsing - will trigger fallback")
+                            raise Exception("Clarity parsing incomplete - too many unknown messages")
+                            
+                    except Exception as e:
+                        logger.error(f"Failed to validate JSON content: {e}")
+                        raise Exception("Clarity parsing incomplete - invalid JSON output")
+                
+                # Check if JSON file is empty
+                if json_size == 0:
                     print("DEBUG: JSON file is empty (0 bytes)!", flush=True)
                     raise Exception("Clarity produced empty output.")
 
