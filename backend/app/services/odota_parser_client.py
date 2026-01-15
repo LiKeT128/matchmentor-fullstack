@@ -133,7 +133,25 @@ class OpenDotaParserClient:
             if interval_events:
                 final_stats = interval_events[-1]
                 
+                # Check 'hero' field first (legacy), then fallback to 'unit'
                 hero_name = final_stats.get('hero')
+                
+                # If hero_name is missing, try to derive from 'unit' (e.g. CDOTA_Unit_Hero_Name)
+                if not hero_name and final_stats.get('unit'):
+                    unit_name = final_stats.get('unit', '')
+                    if unit_name.startswith('CDOTA_Unit_Hero_'):
+                        # Remove prefix
+                        short_name = unit_name[len('CDOTA_Unit_Hero_'):]
+                        # Convert CamelCase to snake_case (e.g. QueenOfPain -> queen_of_pain)
+                        import re
+                        s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', short_name)
+                        snake_case = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+                        hero_name = f"npc_dota_hero_{snake_case}"
+                
+                # Some special cases might need manual fixups if the auto-conversion fails
+                # e.g. Nevermore -> shadow_fiend (though usually they match internal names)
+                # For now, we trust the internal names + npc_dota_hero prefix match widely
+                
                 hero_id = final_stats.get('hero_id')
                 
                 player_data = {
