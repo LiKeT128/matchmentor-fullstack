@@ -2,7 +2,13 @@
 FROM maven:3.9-eclipse-temurin-21 AS parser-builder
 
 WORKDIR /parser
-COPY odota-parser /parser
+
+# Copy only pom.xml first to cache dependencies
+COPY odota-parser/pom.xml .
+RUN mvn dependency:go-offline
+
+# Copy source code and build
+COPY odota-parser .
 RUN mvn clean install -DskipTests
 
 # Main application image
