@@ -14,10 +14,10 @@ ENV PYTHONUNBUFFERED=1
 ENV PARSER_PORT=5600
 ENV PARSER_JAR_PATH=parser.jar
 
-# Install System Dependencies (Java 21 Runtime for parser)
+# Install System Dependencies (Java 17 Runtime for parser)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    openjdk-21-jre-headless \
+    openjdk-17-jre-headless \
     findutils \
     curl \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
