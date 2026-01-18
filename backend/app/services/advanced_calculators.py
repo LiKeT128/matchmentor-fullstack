@@ -11,9 +11,12 @@ class AdvancedCalculators:
 
     @staticmethod
     def calculate_fight_effectiveness(data: Dict[str, Any], hero_id: int) -> Dict[str, Any]:
-        """Group 1: Fight Effectiveness Analysis (8 metrics)"""
+        """Group 1: Fight Effectiveness (8 metrics)"""
+        print(f"DEBUG: [AdvancedCalculators] Calculating Fight Effectiveness for hero {hero_id}...", flush=True)
         player_slot = data.get("player_slot", 0)
-        teamfights = data.get("teamfights", [])
+        teamfights = data.get("full_data", {}).get("teamfights", [])
+        if not teamfights:
+            teamfights = data.get("teamfights", [])
         duration_min = data.get("duration", 1) / 60
         
         # 1. DPS in Fights
@@ -70,7 +73,8 @@ class AdvancedCalculators:
 
     @staticmethod
     def calculate_advanced_positioning(data: Dict[str, Any]) -> Dict[str, Any]:
-        """Group 2: Positioning Risk (10 metrics)"""
+        """Group 2: Positioning Risk (8 metrics)"""
+        print("DEBUG: [AdvancedCalculators] Calculating Advanced Positioning...", flush=True)
         deaths_log = data.get("deaths_log", [])
         if not isinstance(deaths_log, list):
              deaths_log = []
@@ -116,7 +120,8 @@ class AdvancedCalculators:
 
     @staticmethod
     def calculate_decision_quality(data: Dict[str, Any]) -> Dict[str, Any]:
-        """Group 3: Decision Quality (12 metrics)"""
+        """Group 3: Decision Quality (8 metrics)"""
+        print("DEBUG: [AdvancedCalculators] Calculating Decision Quality...", flush=True)
         net_worth = data.get("net_worth", 0)
         gold_spent = data.get("gold_spent", 1)
         efficiency = (net_worth / gold_spent) if gold_spent > 0 else 0
@@ -145,7 +150,9 @@ class AdvancedCalculators:
     @staticmethod
     def calculate_threat_prediction(data: Dict[str, Any]) -> Dict[str, Any]:
         """Group 4: Threat Prediction (8 metrics)"""
+        print("DEBUG: [AdvancedCalculators] Calculating Threat Prediction...", flush=True)
         vulnerability = data.get("vision_score", 50) 
+        deaths_log = data.get("deaths_log", [])
         
         lane_pos = data.get("lane_pos", {})
         if not isinstance(lane_pos, dict):
@@ -180,7 +187,8 @@ class AdvancedCalculators:
 
     @staticmethod
     def calculate_psychological_metrics(data: Dict[str, Any]) -> Dict[str, Any]:
-        """Group 6: Psychological Metrics (4 metrics)"""
+        """Group 6: Psychological Metrics (8 metrics)"""
+        print("DEBUG: [AdvancedCalculators] Calculating Psychological Metrics...", flush=True)
         deaths = data.get("deaths", 0)
         assists = data.get("assists", 0)
         kills = data.get("kills", 0)
@@ -196,7 +204,8 @@ class AdvancedCalculators:
 
     @staticmethod
     def calculate_stat_correlations(data: Dict[str, Any]) -> Dict[str, Any]:
-        """Group 5: Advanced Stat Correlations (6 metrics)"""
+        """Group 5: Stat Correlations (8 metrics)"""
+        print("DEBUG: [AdvancedCalculators] Calculating Stat Correlations...", flush=True)
         gpm = data.get("gold_per_min", 1)
         kills = data.get("kills", 0)
         assists = data.get("assists", 0)

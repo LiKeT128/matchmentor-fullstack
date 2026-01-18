@@ -222,7 +222,11 @@ def parse_demo_background(
         match.result = result
         
         # Save full parsed data (this contains all heroes)
+        # OPTIMIZATION: Do not save raw_events to DB, it's too large and slows down everything
         parsed_data = clarity_output.copy()
+        if "raw_events" in parsed_data:
+            del parsed_data["raw_events"]
+            
         parsed_data["status"] = "completed"  # Parsing completed, ready for hero selection
         match.parsed_data = parsed_data
         

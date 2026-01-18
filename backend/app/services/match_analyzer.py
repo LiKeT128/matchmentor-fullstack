@@ -129,68 +129,90 @@ class MatchAnalyzer:
         player_data["duration_minutes"] = max(duration / 60, 1)
         player_data["duration"] = duration
         
-        # 3. Calculate Metric Groups
-        metrics = {}
+        # Merged rich metrics
+        match_id = parsed_data.get("match_id", "unknown_match")
+        logger.info(f"Analyzing match {match_id} for hero {hero_name}")
+        print(f"DEBUG: [MatchAnalyzer] Beginning full analysis for {hero_name}...", flush=True)
+
+        # 1. Basic Stats
+        print("DEBUG: [MatchAnalyzer] Calculating Basic Stats...", flush=True)
+        basic_stats = self.calculate_gpm_xpm(player_data)
         
-        # Group 1: Basic Stats (10)
-        metrics["basic_stats"] = self.calculate_gpm_xpm(player_data)
+        # 2. Laning Phase
+        print("DEBUG: [MatchAnalyzer] Calculating Laning Phase...", flush=True)
+        lane_metrics = self.calculate_lane_metrics(player_data)
         
-        # Group 2: CS & Farming (4) -- Merged into basic or separate
-        metrics["cs"] = self._calculate_farming(player_data)
+        # 3. Vision & Map Control
+        print("DEBUG: [MatchAnalyzer] Calculating Vision Metrics...", flush=True)
+        vision_metrics = self.calculate_warding_value(player_data)
+
+        # 4. Role & Impact
+        print("DEBUG: [MatchAnalyzer] Calculating Role Metrics...", flush=True)
+        role_impact = {
+            "fighting": self.calculate_teamfight_stats(player_data),
+            "farming": self._calculate_farming(player_data),
+            "items": self.calculate_item_efficiency(player_data),
+            "mid_game": self.calculate_midgame_metrics(player_data),
+            "late_game": self.calculate_lategame_metrics(player_data),
+            "positioning": self.calculate_positioning_risk(player_data)
+        }
         
-        # Group 3: Fighting (10)
-        metrics["fighting"] = self.calculate_teamfight_stats(player_data)
+        # 5. Advanced Unique Metrics (from AdvancedCalculators)
+        print("DEBUG: [MatchAnalyzer] Calculating Advanced Metrics...", flush=True)
+        hero_id = get_hero_id(hero_name) if hero_name else player_data.get("hero_id", 0)
         
-        # Group 5: Items (12)
-        metrics["items"] = self.calculate_item_efficiency(player_data)
-        
-        # Group 6: Lane Phase (6)
-        metrics["lane"] = self.calculate_lane_metrics(player_data)
-        
-        # Group 7: Mid Game (5)
-        metrics["mid_game"] = self.calculate_midgame_metrics(player_data)
-        
-        # Group 8: Late Game (4)
-        metrics["late_game"] = self.calculate_lategame_metrics(player_data)
-        
-        # Group 9: Positioning
-        metrics["positioning"] = self.calculate_positioning_risk(player_data)
-        
-        # Group 10: Vision
-        metrics["vision"] = self.calculate_warding_value(player_data)
-        
-        # Group 12: Benchmarks
+        fight_eff = AdvancedCalculators.calculate_fight_effectiveness(player_data, hero_id)
+        adv_pos = AdvancedCalculators.calculate_advanced_positioning(player_data)
+        dec_qual = AdvancedCalculators.calculate_decision_quality(player_data)
+        threat_pred = AdvancedCalculators.calculate_threat_prediction(player_data)
+        psych = AdvancedCalculators.calculate_psychological_metrics(player_data)
+        stat_corr = AdvancedCalculators.calculate_stat_correlations(player_data)
+        print("DEBUG: [MatchAnalyzer] Advanced Metrics finished", flush=True)
+
+        # Final Metrics Assembly
+        metrics = {
+            "overall_score": 0,
+            "match_id": match_id,
+            "hero_name": hero_name,
+            "duration": player_data.get("duration", 0),
+            "basic_stats": basic_stats,
+            "laning_phase": lane_metrics,
+            "vision": vision_metrics,
+            "role_impact": role_impact,
+            "fight_effectiveness": fight_eff,
+            "advanced_positioning": adv_pos,
+            "decision_quality": dec_qual,
+            "threat_prediction": threat_pred,
+            "psychological": psych,
+            "stat_correlations": stat_corr
+        }
+
+        # Benchmarks
+        print("DEBUG: [MatchAnalyzer] Comparing with benchmarks...", flush=True)
         active_hero = player_data.get("hero_name", hero_name or "unknown")
-        # Pass raw benchmarks for accurate comparison
         metrics["_raw_benchmarks"] = player_data.get("benchmarks", {})
         benchmark_comparison = self.compare_with_benchmark(metrics, active_hero)
         metrics["benchmarks"] = benchmark_comparison
-        # Clean up temporary key
-        del metrics["_raw_benchmarks"]
         
-        # Group 13: Decision & Advice
+        # Advice
+        print("DEBUG: [MatchAnalyzer] Generating advice...", flush=True)
         advice_data = self.generate_deterministic_advice(metrics, benchmark_comparison)
         
-        # --- Group 14+: Unique Advanced Metrics (MatchMentor Originals) ---
-        hero_id = get_hero_id(hero_name) if hero_name else player_data.get("hero_id", 0)
-        metrics["fight_effectiveness"] = AdvancedCalculators.calculate_fight_effectiveness(player_data, hero_id)
-        metrics["advanced_positioning"] = AdvancedCalculators.calculate_advanced_positioning(player_data)
-        metrics["decision_quality"] = AdvancedCalculators.calculate_decision_quality(player_data)
-        metrics["threat_prediction"] = AdvancedCalculators.calculate_threat_prediction(player_data)
-        metrics["psychological"] = AdvancedCalculators.calculate_psychological_metrics(player_data)
-        metrics["stat_correlations"] = AdvancedCalculators.calculate_stat_correlations(player_data)
-        
-        # Flatten for legacy compatibility where needed, but keep structured for new UI
-
+        # Calculate overall score for metrics
+        metrics["overall_score"] = advice_data.get("score", 75)
         
         return {
-            "match_id": str(parsed_data.get("match_id")),
+            "match_id": str(match_id),
             "hero_id": hero_id,
             "hero_name": hero_name,
             "match_duration": int(player_data.get("duration", 0)),
             "metrics": metrics,
-            "advice": advice_data,
-            "overall_score": advice_data.get("score", 75),
+            "advice": advice_data.get("top_improvements", []), # Frontend expects array
+            "mistakes": advice_data.get("top_mistakes", []),    # Frontend expects array
+            "overall_score": metrics["overall_score"],
+            "strengths": [m for m in advice_data.get("top_improvements", []) if "Good" in m],
+            "weaknesses": [m for m in advice_data.get("top_mistakes", [])],
+            "power_spikes": [],
             "timestamp": datetime.utcnow().isoformat()
         }
 

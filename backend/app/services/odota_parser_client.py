@@ -114,7 +114,6 @@ class OpenDotaParserClient:
             "heroes": [], # Legacy compatibility: List of found heroes
             "objectives": [],
             "teamfights": [],
-            "raw_events": events
         }
         
         # Group events by player slot

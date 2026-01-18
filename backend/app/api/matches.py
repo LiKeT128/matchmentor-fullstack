@@ -4,6 +4,8 @@ import os
 import shutil
 import tempfile
 import logging
+import time
+import json
 from datetime import datetime
 from typing import List, Optional
 
@@ -1121,16 +1123,41 @@ async def select_hero(
             logger.info(f"[select_hero] STEP 5 OK: Analyzer created")
         except Exception as e:
             logger.error(f"[select_hero] STEP 5 FAIL: {str(e)}", exc_info=True)
-            raise ValueError(f"Analyzer initialization failed: {str(e)}")
+        # STEP 4: Get and clean parsed data
+        logger.info(f"[select_hero] STEP 4: Loading parsed_data...")
+        parsed_data = match.parsed_data or {}
         
+        # SELF-HEALING: If this match has oversized raw_events, clean it up
+        if "raw_events" in parsed_data:
+            logger.info(f"[select_hero] CLEANUP: Removing oversized raw_events from legacy record")
+            new_parsed_data = parsed_data.copy()
+            del new_parsed_data["raw_events"]
+            match.parsed_data = new_parsed_data
+            try:
+                db.commit()
+                logger.info(f"[select_hero] CLEANUP: Database cleaned and committed")
+                parsed_data = new_parsed_data # Use cleaned data for analysis
+            except Exception as e:
+                db.rollback()
+                logger.warning(f"[select_hero] CLEANUP FAIL: {e}")
+
+        # STEP 5: Create MatchAnalyzer
+        logger.info(f"[select_hero] STEP 5: Initialize MatchAnalyzer...")
+        analyzer = MatchAnalyzer()
+
         # STEP 6: Analyze match
         logger.info(f"[select_hero] STEP 6: Calling analyze_match()...")
+        print(f"DEBUG: Starting analyze_match for {request.hero_name}...", flush=True)
+        start_time = time.time()
         
         try:
             analysis = analyzer.analyze_match(parsed_data, hero_name=request.hero_name)
-            logger.info(f"[select_hero] STEP 6 OK: Analysis complete")
+            duration = time.time() - start_time
+            logger.info(f"[select_hero] STEP 6 OK: Analysis complete in {duration:.2f}s")
+            print(f"DEBUG: analyze_match finished in {duration:.2f}s", flush=True)
         except Exception as e:
             logger.error(f"[select_hero] STEP 6 FAIL: {str(e)}", exc_info=True)
+            print(f"DEBUG: analyze_match FAILED: {e}", flush=True)
             raise ValueError(f"Analysis failed: {str(e)}")
         
         # STEP 7: Prepare data
@@ -1170,6 +1197,11 @@ async def select_hero(
         
         db.refresh(match)
         
+        # OPTIMIZATION: Do not send raw_events to frontend
+        clean_parsed_data = parsed_data.copy()
+        if "raw_events" in clean_parsed_data:
+            del clean_parsed_data["raw_events"]
+
         response = {
             "success": True,
             "id": match.id,
@@ -1187,7 +1219,7 @@ async def select_hero(
             "mistakes": analysis.get("mistakes", []),
             "rank_tier": metrics.get("rank_tier", 0),
             "items": match.parsed_data.get("items", []) if match.parsed_data else [],
-            "parsed_data": parsed_data,
+            "parsed_data": clean_parsed_data,
             "created_at": match.created_at,
             "selected_hero_name": match.selected_hero_name,
             "selected_at": match.selected_at,
