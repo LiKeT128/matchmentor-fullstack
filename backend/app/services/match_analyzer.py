@@ -252,12 +252,14 @@ class MatchAnalyzer:
 
     def calculate_gpm_xpm(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Group 1: Basic Stats (8 metrics)"""
-        duration = data.get("duration_minutes", 1)
+        # Support both OpenDota (gold_per_min) and Clarity (gpm) keys
+        gpm = data.get("gold_per_min", data.get("gpm", 0))
+        xpm = data.get("xp_per_min", data.get("xpm", 0))
+        lh = data.get("last_hits", data.get("lh", 0))
         
         kills = data.get("kills", 0)
         deaths = data.get("deaths", 0)
         assists = data.get("assists", 0)
-        
         deaths_safe = max(deaths, 1)
         
         return {
@@ -266,31 +268,31 @@ class MatchAnalyzer:
             "assists": assists,
             "kd_ratio": round(kills / deaths_safe, 2),
             "kda_ratio": round((kills + assists) / deaths_safe, 2),
-            "gpm": data.get("gold_per_min", 0),
-            "xpm": data.get("xp_per_min", 0),
-            "lh": data.get("last_hits", 0)
+            "gpm": gpm,
+            "xpm": xpm,
+            "lh": lh
         }
 
     def calculate_lane_metrics(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Group 6: Lane Phase Analysis (7 metrics)"""
-        # Try direct extraction first (lh_at_10 provided by parser)
-        lh_10 = data.get("lh_at_10", 0)
+        # Try direct extraction first (lh_at_10 provided by parser or opendota)
+        lh_10 = data.get("lh_at_10", data.get("last_hits_10", 0))
         
         # Fallback to time series if available
         if lh_10 == 0:
-            lh_t = data.get("lh_t", [])
-            # lh_t is typically [0, lh_1, lh_2, ...]. So index 10 is at 10 mins.
+            lh_t = data.get("lh_t", data.get("last_hits_t", []))
             if len(lh_t) > 10:
                 lh_10 = lh_t[10]
         
         # Gold at 10
-        gold_10 = 0
-        gold_t = data.get("gold_t", [])
-        if len(gold_t) > 10:
-            gold_10 = gold_t[10]
-        else:
-             # Estimate if missing
-             gold_10 = int(data.get("gold_per_min", 0) * 10)
+        gold_10 = data.get("gold_at_10", 0)
+        if gold_10 == 0:
+            gold_t = data.get("gold_t", data.get("gold_adv_t", []))
+            if len(gold_t) > 10:
+                gold_10 = gold_t[10]
+            else:
+                 # Estimate if missing
+                 gold_10 = int(data.get("gold_per_min", data.get("gpm", 0)) * 10)
 
         # XP at 10
         xp_10 = 0
