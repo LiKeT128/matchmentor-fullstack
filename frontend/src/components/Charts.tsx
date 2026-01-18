@@ -21,8 +21,6 @@ export const Charts = ({ metrics }: ChartsProps) => {
     if (!metrics) return null;
 
     const basic = metrics.basic_stats || {};
-    const farming = metrics.laning_phase || {};
-
     // Prepare data for bar charts
     const farmingData = [
         { name: 'GPM', value: basic.gpm || 0, fill: '#14b8a6' },
