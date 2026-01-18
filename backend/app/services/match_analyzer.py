@@ -169,22 +169,54 @@ class MatchAnalyzer:
         stat_corr = AdvancedCalculators.calculate_stat_correlations(player_data)
         print("DEBUG: [MatchAnalyzer] Advanced Metrics finished", flush=True)
 
-        # Final Metrics Assembly
+        # Final Metrics Assembly (FLATTENED for frontend compatibility)
         metrics = {
             "overall_score": 0,
             "match_id": match_id,
             "hero_name": hero_name,
             "duration": player_data.get("duration", 0),
-            "basic_stats": basic_stats,
-            "laning_phase": lane_metrics,
-            "vision": vision_metrics,
-            "role_impact": role_impact,
-            "fight_effectiveness": fight_eff,
-            "advanced_positioning": adv_pos,
-            "decision_quality": dec_qual,
-            "threat_prediction": threat_pred,
-            "psychological": psych,
-            "stat_correlations": stat_corr
+            
+            # --- Legacy Flat Keys for UI ---
+            # Laning Phase
+            "lh_at_10": lane_metrics.get("lh", 0),
+            "gold_at_10": lane_metrics.get("gold", 0),
+            "xp_at_10": lane_metrics.get("xp", 0),
+            "deaths_in_lane": lane_metrics.get("deaths", 0),
+            
+            # Farming & Economy
+            "gpm": basic_stats.get("gpm", 0),
+            "xpm": basic_stats.get("xpm", 0),
+            "last_hits": basic_stats.get("lh", 0),
+            "gold_efficiency": role_impact["items"].get("gold_efficiency", 90),
+            
+            # Positioning & Safety
+            "position_safety_score": role_impact["positioning"].get("safety_rating", 80),
+            "danger_zone_pct": role_impact["positioning"].get("danger_zone_pct", 20),
+            "avg_distance_from_team": 450, # Static or calculate
+            "respawn_sum": player_data.get("respawn_time", 0) or (player_data.get("deaths", 0) * 30),
+            
+            # Combat & Impact
+            "teamfight_participation": role_impact["fighting"].get("tf_participation", 0),
+            "hero_damage": player_data.get("hero_damage", 0),
+            "stun_duration_total": player_data.get("stuns", 0),
+            "kda": basic_stats.get("kda_ratio", 0),
+            
+            # Vision
+            "vision_score": vision_metrics.get("vision_score", 0),
+            
+            # --- Structured Groups (for advanced future UI) ---
+            "groups": {
+                "basic_stats": basic_stats,
+                "laning_phase": lane_metrics,
+                "vision": vision_metrics,
+                "role_impact": role_impact,
+                "fight_effectiveness": fight_eff,
+                "advanced_positioning": adv_pos,
+                "decision_quality": dec_qual,
+                "threat_prediction": threat_pred,
+                "psychological": psych,
+                "stat_correlations": stat_corr
+            }
         }
 
         # Benchmarks
@@ -207,11 +239,11 @@ class MatchAnalyzer:
             "hero_name": hero_name,
             "match_duration": int(player_data.get("duration", 0)),
             "metrics": metrics,
-            "advice": advice_data.get("top_improvements", []), # Frontend expects array
-            "mistakes": advice_data.get("top_mistakes", []),    # Frontend expects array
+            "advice": advice_data.get("top_improvements", []), 
+            "mistakes": advice_data.get("top_mistakes", []),    
             "overall_score": metrics["overall_score"],
-            "strengths": [m for m in advice_data.get("top_improvements", []) if "Good" in m],
-            "weaknesses": [m for m in advice_data.get("top_mistakes", [])],
+            "strengths": [a["title"] for a in advice_data.get("top_improvements", []) if a.get("type") == "strength"],
+            "weaknesses": [a["title"] for a in advice_data.get("top_improvements", []) if a.get("type") == "weakness"] or advice_data.get("top_mistakes", []),
             "power_spikes": [],
             "timestamp": datetime.utcnow().isoformat()
         }
@@ -464,18 +496,56 @@ class MatchAnalyzer:
         """Group 13: Decision Quality & Advice"""
         
         mistakes = []
-        improvements = []
+        improvements = [] # These will be rich objects
         
-        basic = metrics.get("basic_stats", {})
-        lh = basic.get("lh", 0)
+        lh = metrics.get("last_hits", 0)
         
         if lh < 100:
-            mistakes.append("Low farm priority")
-            improvements.append("Focus on last hitting in lane")
+            msg = "Low farm priority: You need to focus more on securing last hits throughout the game."
+            mistakes.append(msg)
+            improvements.append({
+                "category": "Farming",
+                "title": "Improve Last Hitting",
+                "description": "Aim for at least 150-200 last hits as a core hero to maintain economic pressure.",
+                "priority": "high",
+                "type": "improvement"
+            })
             
+        gpm = metrics.get("gpm", 0)
+        if gpm < 400:
+            mistakes.append("Insufficient GPM: Your gold accumulation is below the optimal threshold for your role.")
+            improvements.append({
+                "category": "Economy",
+                "title": "Maximize GPM",
+                "description": "Utilize empty lanes and jungle camps more efficiently during mid-game rotations.",
+                "priority": "medium",
+                "type": "improvement"
+            })
+
+        kda = metrics.get("kda", 0)
+        if kda < 2.0:
+            mistakes.append("High death count or low participation.")
+            improvements.append({
+                "category": "Combat",
+                "title": "Teamfight Positioning",
+                "description": "Work on your positioning in teamfights to stay alive longer and contribute more damage.",
+                "priority": "high",
+                "type": "improvement"
+            })
+
+        # Add some strengths if metrics are good
+        if metrics.get("vision_score", 0) > 40:
+            improvements.append({
+                "category": "Vision",
+                "title": "Excellent Map Control",
+                "description": "Your warding and vision score were significantly above average this match.",
+                "priority": "low",
+                "type": "strength"
+            })
+
         return {
             "top_mistakes": mistakes,
             "top_improvements": improvements,
             "playstyle_analysis": "Balanced",
-            "score": 75
+            "score": max(40, 100 - (len(mistakes) * 10))
         }

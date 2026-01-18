@@ -1115,14 +1115,6 @@ async def select_hero(
         
         logger.info(f"[select_hero] STEP 4 OK: Hero found")
 
-        # STEP 5: Initialize analyzer
-        logger.info(f"[select_hero] STEP 5: Creating MatchAnalyzer...")
-        
-        try:
-            analyzer = MatchAnalyzer()
-            logger.info(f"[select_hero] STEP 5 OK: Analyzer created")
-        except Exception as e:
-            logger.error(f"[select_hero] STEP 5 FAIL: {str(e)}", exc_info=True)
         # STEP 4: Get and clean parsed data
         logger.info(f"[select_hero] STEP 4: Loading parsed_data...")
         parsed_data = match.parsed_data or {}
@@ -1143,7 +1135,12 @@ async def select_hero(
 
         # STEP 5: Create MatchAnalyzer
         logger.info(f"[select_hero] STEP 5: Initialize MatchAnalyzer...")
-        analyzer = MatchAnalyzer()
+        try:
+            analyzer = MatchAnalyzer()
+            logger.info(f"[select_hero] STEP 5 OK: Analyzer created")
+        except Exception as e:
+            logger.error(f"[select_hero] STEP 5 FAIL: {str(e)}", exc_info=True)
+            raise ValueError(f"Analyzer initialization failed: {str(e)}")
 
         # STEP 6: Analyze match
         logger.info(f"[select_hero] STEP 6: Calling analyze_match()...")
