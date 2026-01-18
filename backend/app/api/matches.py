@@ -1003,110 +1003,6 @@ async def compare_matches(
     )
 
 
-def _extract_heroes_from_match(parsed_data: dict) -> list[dict]:
-    """
-    Extracts and formats hero data from parsed_data, including mapping to CDN names
-    and basic stats.
-    """
-    heroes = []
-    
-    # Debug logging to trace structure
-    keys = list(parsed_data.keys())
-    logger.info(f"_extract_heroes: checking parsed_data keys: {keys}")
-    
-    # Try standard players list
-    players = parsed_data.get("players", [])
-    
-    # Fallback to OpenDota raw structure
-    if not players:
-        logger.info("_extract_heroes: 'players' list empty/missing. Checking 'raw.players'.")
-        raw_data = parsed_data.get("raw", {})
-        players = raw_data.get("players", [])
-    
-    if not players:
-        logger.warning("_extract_heroes: 'players' list empty/missing in parsed_data (checked raw also).")
-        return []
-
-    for idx, entry in enumerate(players):
-        raw_hero_name = entry.get("hero_name") or entry.get("hero", "unknown")
-        
-        # Determine team
-        team = "radiant"
-        if entry.get("isRadiant") is not None:
-             team = "radiant" if entry["isRadiant"] else "dire"
-        elif idx >= 5: # Fallback based on index
-             team = "dire"
-             
-        position = entry.get("position")
-        steam_id = entry.get("account_id")
-
-        # CRITICAL: Map internal names to image CDN names
-        raw_name = str(raw_hero_name) if raw_hero_name else "unknown"
-        
-        short_name = raw_name.replace("npc_dota_hero_", "")
-        
-        # Image mapping (Internal -> CDN Name)
-        # Only map exceptions where internal name != CDN name
-        image_mapping = {
-            "zuus": "zeus",
-            "windrunner": "windranger",
-            "necrolyte": "necrophos",
-            "treant": "treant_protector",
-            "obsidian_destroyer": "outworld_destroyer",
-            # "furion": "natures_prophet", # REVERTED: Internal 'furion' maps to 'furion.png' correctly
-            "rattletrap": "clockwerk", # 'clockwerk.png' is standard? 'rattletrap.png' also exists? Using clockwerk to be safe if common.
-            "shredder": "timbersaw",
-            "skeleton_king": "wraith_king",
-            "doom_bringer": "doom",
-            "wisp": "io",
-            "magnataur": "magnus",
-            "life_stealer": "lifestealer",
-            "abyssal_underlord": "underlord",
-            "nevermore": "shadow_fiend", # User confirmed shadow_fiend is needed
-            "queenofpain": "queen_of_pain",
-            "vengefulspirit": "vengeful_spirit",
-            "antimage": "antimage", 
-            "broodmother": "broodmother",
-            "night_stalker": "night_stalker",
-            "centaur": "centaur",
-        }
-        
-        image_name = image_mapping.get(short_name, short_name)
-        
-        # Generate display name from short name
-        display_name = image_name.replace("_", " ").title()
-        
-        # Extract stats if available (useful for OpenDota lookups)
-        gpm = entry.get("gold_per_min") if isinstance(entry, dict) else 0
-        xpm = entry.get("xp_per_min") if isinstance(entry, dict) else 0
-        kda = 0
-        if isinstance(entry, dict):
-            k = entry.get("kills", 0)
-            d = entry.get("deaths", 0)
-            a = entry.get("assists", 0)
-            if d == 0:
-                kda = k + a
-            else:
-                 kda = round((k + a) / d, 2)
-        
-        heroes.append({
-            "player_id": idx,
-            "hero_name": image_name,  # Use name compatible with official CDN
-            "hero_display_name": display_name,
-            "team": team,
-            "position": str(position) if position else "unknown",
-            "steam_id": str(steam_id) if steam_id else None,
-            # Basic stats for preview
-            "gpm": gpm,
-            "xpm": xpm,
-            "kda": kda
-        })
-    
-    logger.info(f"_extract_heroes: Returning {len(heroes)} heroes")
-    if heroes:
-        logger.info(f"  Sample: {heroes[0]}")
-    
-    return heroes
 
 from pydantic import BaseModel
 
@@ -1155,6 +1051,15 @@ async def select_hero(
             Match.match_id == match_id,
             Match.player_id == current_user.id
         ).first()
+        
+        if not match and match_id.isdigit():
+            val = int(match_id)
+            if val < 100000000:
+                logger.info(f"[select_hero] Fallback: Searching by internal ID: {val}")
+                match = db.query(Match).filter(
+                    Match.id == val,
+                    Match.player_id == current_user.id
+                ).first()
         
         if not match:
             logger.error(f"[select_hero] STEP 2 FAIL: Match {match_id} not found for user {current_user.id}")

@@ -228,13 +228,29 @@ export const Results = () => {
 
                 {/* Hero Selector */}
                 {showSelector && (
-                    <div className="mb-10 p-6 bg-gray-800/50 border border-gray-700 rounded-2xl relative">
-                        <h3 className="text-xl font-bold text-white mb-6">Select Hero to Analyze</h3>
-                        <div className="grid grid-cols-2 sm:grid-cols-5 md:grid-cols-10 gap-3">
+                    <div className={`mb-10 p-8 bg-gray-800/80 border-2 rounded-3xl relative backdrop-blur-md shadow-2xl transition-all ${!match.selected_hero_name ? 'border-teal-500/50 ring-4 ring-teal-500/10' : 'border-gray-700'}`}>
+                        <div className="flex items-center justify-between mb-8">
+                            <div>
+                                <h3 className="text-2xl font-bold text-white mb-1">Select Hero to Analyze</h3>
+                                <p className="text-gray-400 text-sm">Choose a hero from the match to generate deep strategic insights.</p>
+                            </div>
+                            {match.selected_hero_name && (
+                                <button
+                                    onClick={() => setShowSelector(false)}
+                                    className="p-2 hover:bg-gray-700 rounded-full transition-colors"
+                                >
+                                    <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            )}
+                        </div>
+
+                        <div className="grid grid-cols-2 sm:grid-cols-5 md:grid-cols-10 gap-4">
                             {allHeroes.map(hero => {
                                 const heroShortName = hero.replace('npc_dota_hero_', '');
-
                                 const imageUrl = `https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/heroes/${heroShortName}.png`;
+                                const isSelected = currentHero === hero;
 
                                 return (
                                     <button
@@ -242,9 +258,9 @@ export const Results = () => {
                                         onClick={() => handleSelectHero(hero)}
                                         disabled={selecting}
                                         className={`
-                                            group relative flex flex-col items-center gap-2 p-2 rounded-xl border-2 transition-all
-                                            ${currentHero === hero
-                                                ? 'border-teal-500 bg-teal-500/10'
+                                            group relative flex flex-col items-center gap-2 p-1 rounded-xl border-2 transition-all
+                                            ${isSelected
+                                                ? 'border-teal-500 bg-teal-500/10 shadow-[0_0_15px_rgba(20,184,166,0.3)]'
                                                 : 'border-transparent hover:border-gray-600 bg-gray-900/50'
                                             }
                                         `}
@@ -253,22 +269,24 @@ export const Results = () => {
                                             <img
                                                 src={imageUrl}
                                                 alt={heroShortName}
-                                                className="w-full h-full object-cover transition-transform group-hover:scale-110"
+                                                className={`w-full h-full object-cover transition-transform group-hover:scale-110 ${isSelected ? 'brightness-110' : 'brightness-90 group-hover:brightness-100'}`}
                                                 onError={(e) => {
                                                     const target = e.target as HTMLImageElement;
                                                     target.onerror = null;
                                                     target.src = 'https://placehold.co/128x72?text=Unknown';
                                                 }}
                                             />
-                                            {currentHero === hero && (
+                                            {isSelected && (
                                                 <div className="absolute inset-0 bg-teal-500/20 flex items-center justify-center">
-                                                    <svg className="w-8 h-8 text-white drop-shadow-lg" fill="currentColor" viewBox="0 0 20 20">
-                                                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                                    </svg>
+                                                    <div className="w-8 h-8 rounded-full bg-teal-500 flex items-center justify-center shadow-lg transform scale-110">
+                                                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                                        </svg>
+                                                    </div>
                                                 </div>
                                             )}
                                         </div>
-                                        <span className={`text-[10px] font-bold uppercase truncate w-full text-center ${currentHero === hero ? 'text-teal-400' : 'text-gray-400 group-hover:text-gray-200'}`}>
+                                        <span className={`text-[10px] font-bold uppercase truncate w-full text-center tracking-tight ${isSelected ? 'text-teal-400' : 'text-gray-500 group-hover:text-gray-300'}`}>
                                             {heroShortName.replace(/_/g, ' ')}
                                         </span>
                                     </button>
@@ -276,41 +294,49 @@ export const Results = () => {
                             })}
                         </div>
                         {selecting && (
-                            <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-[2px] rounded-2xl flex flex-col items-center justify-center gap-4 z-10 transition-opacity">
-                                <LoadingSpinner size="md" />
-                                <span className="text-white font-semibold">Updating Analysis...</span>
+                            <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-[4px] rounded-[22px] flex flex-col items-center justify-center gap-4 z-20 transition-all animate-in fade-in">
+                                <LoadingSpinner size="lg" className="text-teal-500" />
+                                <div className="text-center">
+                                    <span className="text-xl font-bold text-white block mb-1">Processing Match Replay</span>
+                                    <span className="text-teal-400/80 text-sm font-medium">Calculating advanced metrics...</span>
+                                </div>
                             </div>
                         )}
                     </div>
                 )}
 
-                {/* Metrics Display */}
-                <MetricsDisplay metrics={match.metrics} />
+                {/* Show content only if hero is selected or selector is closed */}
+                {(!showSelector || (match.selected_hero_name)) && (
+                    <>
+                        {/* Metrics Display */}
+                        <MetricsDisplay metrics={match.metrics} />
 
-                {/* Charts */}
-                <Charts metrics={match.metrics} />
+                        {/* Charts */}
+                        <Charts metrics={match.metrics} />
 
-                {/* Mistakes Section */}
-                {match.mistakes && match.mistakes.length > 0 && (
-                    <div className="mb-8">
-                        <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-                            <span className="text-red-400">⚠️</span> Key Mistakes
-                        </h3>
-                        <div className="bg-red-900/10 border border-red-500/20 rounded-xl p-6">
-                            <ul className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                {match.mistakes.map((mistake, idx) => (
-                                    <li key={idx} className="flex items-start gap-2 text-gray-300">
-                                        <span className="text-red-500 mt-1.5">•</span>
-                                        <span>{mistake}</span>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    </div>
+                        {/* Mistakes Section */}
+                        {match.mistakes && match.mistakes.length > 0 && (
+                            <div className="mb-8">
+                                <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                                    <span className="text-red-400">⚠️</span> Key Mistakes
+                                </h3>
+                                <div className="bg-red-900/10 border border-red-500/20 rounded-xl p-6">
+                                    <ul className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        {match.mistakes.map((mistake, idx) => (
+                                            <li key={idx} className="flex items-start gap-2 text-gray-300">
+                                                <span className="text-red-500 mt-1.5">•</span>
+                                                <span>{mistake}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Advice List */}
+                        <AdviceList advice={match.advice} />
+                    </>
                 )}
-
-                {/* Advice List */}
-                <AdviceList advice={match.advice} />
 
                 {/* Bottom Actions */}
                 <div className="flex flex-col sm:flex-row gap-4 mt-12 pt-8 border-t border-gray-800">
