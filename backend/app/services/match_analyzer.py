@@ -124,51 +124,27 @@ class MatchAnalyzer:
             if "full_data" not in player_data:
                 player_data["full_data"] = rich_player
 
+        if not player_data:
+             logger.warning(f"No player data found for hero {hero_name} in match {match_id}")
+             # Return minimal skeleton instead of crashing
+             return {
+                 "match_id": str(match_id),
+                 "hero_id": target_hero_id or 0,
+                 "hero_name": hero_name,
+                 "match_duration": 0,
+                 "metrics": {"error": "Hero data missing in parse"},
+                 "advice": [],
+                 "mistakes": [],
+                 "overall_score": 0,
+                 "strengths": [],
+                 "weaknesses": []
+             }
+
         # Ensure duration_minutes is globally available to calculators
         duration = parsed_data.get("duration") or parsed_data.get("duration_seconds") or 1800
         player_data["duration_minutes"] = max(duration / 60, 1)
         player_data["duration"] = duration
         
-        # Merged rich metrics
-        match_id = parsed_data.get("match_id", "unknown_match")
-        logger.info(f"Analyzing match {match_id} for hero {hero_name}")
-        print(f"DEBUG: [MatchAnalyzer] Beginning full analysis for {hero_name}...", flush=True)
-
-        # 1. Basic Stats
-        print("DEBUG: [MatchAnalyzer] Calculating Basic Stats...", flush=True)
-        basic_stats = self.calculate_gpm_xpm(player_data)
-        
-        # 2. Laning Phase
-        print("DEBUG: [MatchAnalyzer] Calculating Laning Phase...", flush=True)
-        lane_metrics = self.calculate_lane_metrics(player_data)
-        
-        # 3. Vision & Map Control
-        print("DEBUG: [MatchAnalyzer] Calculating Vision Metrics...", flush=True)
-        vision_metrics = self.calculate_warding_value(player_data)
-
-        # 4. Role & Impact
-        print("DEBUG: [MatchAnalyzer] Calculating Role Metrics...", flush=True)
-        role_impact = {
-            "fighting": self.calculate_teamfight_stats(player_data),
-            "farming": self._calculate_farming(player_data),
-            "items": self.calculate_item_efficiency(player_data),
-            "mid_game": self.calculate_midgame_metrics(player_data),
-            "late_game": self.calculate_lategame_metrics(player_data),
-            "positioning": self.calculate_positioning_risk(player_data)
-        }
-        
-        # 5. Advanced Unique Metrics (from AdvancedCalculators)
-        print("DEBUG: [MatchAnalyzer] Calculating Advanced Metrics...", flush=True)
-        hero_id = get_hero_id(hero_name) if hero_name else player_data.get("hero_id", 0)
-        
-        fight_eff = AdvancedCalculators.calculate_fight_effectiveness(player_data, hero_id)
-        adv_pos = AdvancedCalculators.calculate_advanced_positioning(player_data)
-        dec_qual = AdvancedCalculators.calculate_decision_quality(player_data)
-        threat_pred = AdvancedCalculators.calculate_threat_prediction(player_data)
-        psych = AdvancedCalculators.calculate_psychological_metrics(player_data)
-        stat_corr = AdvancedCalculators.calculate_stat_correlations(player_data)
-        print("DEBUG: [MatchAnalyzer] Advanced Metrics finished", flush=True)
-
         # Merged rich metrics
         match_id = parsed_data.get("match_id", "unknown_match")
         logger.info(f"Analyzing match {match_id} for hero {hero_name}")
