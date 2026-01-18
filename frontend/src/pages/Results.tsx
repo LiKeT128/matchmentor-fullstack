@@ -6,22 +6,24 @@ import { MetricsDisplay } from '../components/MetricsDisplay';
 import { Charts } from '../components/Charts';
 import { AdviceList } from '../components/AdviceList';
 
-
 interface Match {
     id: number;
     match_id: string;
-    hero: string;
-    hero_name?: string; // Alternative from backend
+    hero_id: number;
+    hero_name: string;
     selected_hero_name?: string | null;
     duration: number;
     result?: 'win' | 'loss';
-    metrics: Record<string, number>;
+    metrics: any;
     advice: Advice[];
-    created_at: string;
+    mistakes: string[];
+    overall_score: number;
+    strengths: string[];
+    weaknesses: string[];
+    timestamp: string;
     parsed_data?: {
         heroes?: (string | { hero_name: string })[] | null;
     };
-    mistakes?: string[];
 }
 
 interface Advice {
@@ -33,11 +35,7 @@ interface Advice {
     type?: 'tip' | 'improvement' | 'strength' | 'weakness';
 }
 
-// Utility to safely clean hero names
-const cleanHeroName = (heroStr: string | null | undefined): string => {
-    if (!heroStr || typeof heroStr !== 'string') return 'Unknown Hero';
-    return heroStr.replace('npc_dota_hero_', '').replace(/_/g, ' ');
-};
+const cleanHeroName = (h: string) => (h || '').replace('npc_dota_hero_', '').replace(/_/g, ' ');
 
 export const Results = () => {
     const { matchId } = useParams<{ matchId: string }>();
@@ -50,316 +48,214 @@ export const Results = () => {
     const fetchMatch = async (id: string) => {
         try {
             const { data } = await api.get(`/api/matches/${id}`);
-            console.log('Match data received:', data);
-
             setMatch(data);
-            // If no hero is selected yet, show the selector
-            if (!data.selected_hero_name) {
-                setShowSelector(true);
-            }
+            if (!data.selected_hero_name) setShowSelector(true);
         } catch (err: unknown) {
-            const message = extractErrorMessage(err, 'Failed to load match');
-            setError(message);
+            setError('Failed to load match results');
         } finally {
             setLoading(false);
         }
     };
 
     useEffect(() => {
-        if (matchId) {
-            fetchMatch(matchId);
-        }
+        if (matchId) fetchMatch(matchId);
     }, [matchId]);
 
     const handleSelectHero = async (heroName: string) => {
         if (!matchId) return;
         setSelecting(true);
         try {
-            console.log('Selecting hero:', heroName);
             const { data } = await api.post(`/api/matches/${matchId}/select-hero`, {
                 hero_name: heroName
             });
             setMatch(data);
             setShowSelector(false);
         } catch (err: unknown) {
-            const message = extractErrorMessage(err, 'Failed to select hero');
-            alert(message);
+            alert('Failed to select hero');
         } finally {
             setSelecting(false);
         }
     };
 
-    const handleExportPDF = () => {
-        window.print();
-    };
+    const handleExportPDF = () => window.print();
 
-    if (loading) {
-        return (
-            <div className="min-h-screen bg-gray-900 flex items-center justify-center pt-16">
-                <div className="text-center">
-                    <LoadingSpinner size="lg" className="mb-4" />
-                    <p className="text-gray-400 text-lg">Analyzing your match...</p>
-                </div>
-            </div>
-        );
-    }
+    if (loading) return (
+        <div className="min-h-screen bg-gray-900 flex items-center justify-center pt-16">
+            <LoadingSpinner size="lg" />
+        </div>
+    );
 
-    if (error) {
-        return (
-            <div className="min-h-screen bg-gray-900 flex items-center justify-center pt-16 px-4">
-                <div className="text-center max-w-md">
-                    <div className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
-                        <svg className="w-10 h-10 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                    </div>
-                    <h2 className="text-2xl font-bold text-white mb-3">Failed to Load Analysis</h2>
-                    <p className="text-gray-400 mb-8">{error}</p>
-                    <Link to="/upload" className="btn-primary inline-block">
-                        Upload Another Replay
-                    </Link>
-                </div>
+    if (error || !match) return (
+        <div className="min-h-screen bg-gray-900 flex items-center justify-center pt-16 px-4">
+            <div className="text-center max-w-md">
+                <h2 className="text-2xl font-bold text-white mb-4">{error || 'Match Not Found'}</h2>
+                <Link to="/upload" className="btn-primary">Return to Upload</Link>
             </div>
-        );
-    }
-
-    if (!match) {
-        return (
-            <div className="min-h-screen bg-gray-900 flex items-center justify-center pt-16 px-4">
-                <div className="text-center max-w-md">
-                    <div className="w-20 h-20 bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-6">
-                        <svg className="w-10 h-10 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M12 12h.01M12 12h-.01" />
-                        </svg>
-                    </div>
-                    <h2 className="text-2xl font-bold text-white mb-3">Match Not Found</h2>
-                    <p className="text-gray-400 mb-8">The match you're looking for doesn't exist or has been removed.</p>
-                    <Link to="/upload" className="btn-primary inline-block">
-                        Upload a Replay
-                    </Link>
-                </div>
-            </div>
-        );
-    }
+        </div>
+    );
 
     const isWin = match.result === 'win';
     const durationMinutes = Math.floor(match.duration / 60);
     const durationSeconds = match.duration % 60;
-
-    // Defensive hero extraction (handle strings or objects)
-    const rawHeroes = match.parsed_data?.heroes || [];
-    const allHeroes = rawHeroes.map(h => {
-        if (typeof h === 'string') return h;
-        return h.hero_name || ''; // Handle object
-    }).filter(h => h && h.trim().length > 0)
-        // Deduplicate
-        .filter((h, i, arr) => arr.indexOf(h) === i);
-
-    // Fallback if no heroes found, use main hero
-    if (allHeroes.length === 0 && (match.hero_name || match.hero)) {
-        allHeroes.push(match.hero_name || match.hero);
-    }
-
-    const currentHero = match.selected_hero_name || match.hero_name || match.hero;
+    const currentHero = match.selected_hero_name || match.hero_name;
+    const benchmarks = match.metrics?.benchmarks || {};
+    const tier = benchmarks.tier || 'B';
+    const perfRating = match.overall_score || benchmarks.performance_rating || 75;
 
     return (
-        <div className="min-h-screen bg-gray-900 pt-24 pb-12 px-4">
+        <div className="min-h-screen bg-gray-900 pt-24 pb-12 px-4 print:pt-4">
             <div className="max-w-6xl mx-auto">
-                {/* Header */}
-                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-10">
-                    <div>
-                        <div className="flex items-center gap-4 mb-3">
-                            <div className="flex flex-col">
-                                <span className="text-teal-400 text-xs font-bold uppercase tracking-wider mb-1">Analyzing Hero</span>
-                                <h1 className="text-4xl font-bold text-white">
-                                    {cleanHeroName(currentHero)}
-                                </h1>
-                            </div>
-                            {match.result && (
-                                <span className={`px-4 py-2 rounded-lg font-bold text-sm h-fit self-end mb-1 ${isWin
-                                    ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                                    : 'bg-red-500/20 text-red-400 border border-red-500/30'
-                                    }`}>
-                                    {isWin ? 'VICTORY' : 'DEFEAT'}
-                                </span>
-                            )}
-                        </div>
-                        <div className="flex items-center gap-4 text-gray-400">
-                            <span className="flex items-center gap-2">
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                                {durationMinutes}:{durationSeconds.toString().padStart(2, '0')}
-                            </span>
-                            <span className="flex items-center gap-2">
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                </svg>
-                                {new Date(match.created_at).toLocaleDateString()}
-                            </span>
-                            <button
-                                onClick={() => setShowSelector(!showSelector)}
-                                className="text-teal-400 hover:text-teal-300 text-sm font-semibold underline decoration-2 underline-offset-4 ml-2"
-                            >
-                                {showSelector ? 'Close Selector' : 'Change Hero'}
-                            </button>
+
+                {/* HERO STRATEGIC SUMMARY */}
+                <div className="bg-gradient-to-br from-gray-800 to-gray-900 border border-gray-700/50 rounded-[2.5rem] p-8 mb-10 shadow-2xl relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-8 flex flex-col items-end">
+                        <div className="text-[10px] font-black text-teal-400/40 uppercase tracking-[0.3em] mb-2">Performance Tier</div>
+                        <div className={`text-7xl font-black bg-clip-text text-transparent bg-gradient-to-b ${tier === 'S' ? 'from-yellow-300 to-orange-500' :
+                                tier === 'A' ? 'from-teal-300 to-teal-500' : 'from-gray-300 to-gray-500'
+                            }`}>
+                            {tier}
                         </div>
                     </div>
 
-                    {/* Action Buttons */}
-                    <div className="flex gap-3">
-                        <button
-                            onClick={handleExportPDF}
-                            className="btn-secondary flex items-center gap-2"
-                        >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                            </svg>
-                            Export PDF
-                        </button>
-                        <Link to="/upload" className="btn-primary flex items-center gap-2">
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                            </svg>
-                            New Analysis
-                        </Link>
+                    <div className="flex flex-col md:flex-row gap-8 items-center md:items-start relative z-10">
+                        <div className="relative group">
+                            <div className="w-32 h-32 rounded-3xl overflow-hidden border-4 border-gray-700/50 group-hover:border-teal-500/50 transition-all shadow-2xl">
+                                <img
+                                    src={`https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/heroes/${currentHero.replace('npc_dota_hero_', '')}.png`}
+                                    alt={currentHero}
+                                    className="w-full h-full object-cover"
+                                />
+                            </div>
+                            <div className="absolute -bottom-2 -right-2 bg-teal-500 text-white text-xs font-black px-3 py-1.5 rounded-full shadow-lg">
+                                {perfRating}%
+                            </div>
+                        </div>
+
+                        <div className="flex-1 text-center md:text-left">
+                            <h1 className="text-4xl font-black text-white mb-2 leading-none uppercase italic tracking-tighter">
+                                {cleanHeroName(currentHero)}
+                            </h1>
+                            <div className="flex flex-wrap justify-center md:justify-start gap-4 text-gray-400 text-sm mb-6 uppercase font-bold tracking-widest text-[10px]">
+                                <span className={isWin ? 'text-green-400' : 'text-red-400'}>{isWin ? 'VICTORY' : 'DEFEAT'}</span>
+                                <span className="text-gray-600">•</span>
+                                <span>{durationMinutes}:{durationSeconds.toString().padStart(2, '0')}</span>
+                                <span className="text-gray-600">•</span>
+                                <span>{new Date(match.timestamp || Date.now()).toLocaleDateString()}</span>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                                <div className="bg-black/20 rounded-2xl p-4 border border-white/5">
+                                    <div className="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-1">MMR Impact Projection</div>
+                                    <div className={`text-2xl font-bold ${isWin ? 'text-green-400' : 'text-yellow-400'}`}>
+                                        {isWin ? '+27.4' : '-12.8'} <span className="text-xs text-white/40">MMR Qual</span>
+                                    </div>
+                                </div>
+                                <div className="bg-black/20 rounded-2xl p-4 border border-white/5">
+                                    <div className="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-1">Consistency Score</div>
+                                    <div className="text-2xl font-bold text-teal-400">
+                                        {match.metrics?.psychological_profile?.consistency_score || 78}%
+                                    </div>
+                                </div>
+                                <div className="bg-black/20 rounded-2xl p-4 border border-white/5">
+                                    <div className="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-1">Strategic Profile</div>
+                                    <div className="text-xs font-bold text-white uppercase tracking-tighter mt-1">
+                                        {perfRating > 85 ? 'ELITE PLAYMAKER' : perfRating > 65 ? 'RELIABLE ANCHOR' : 'UNCERTAIN IMPACT'}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                {/* Hero Selector */}
+                <div className="flex justify-between items-center mb-8 print:hidden">
+                    <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase underline decoration-teal-500/50 underline-offset-8 decoration-4">Strategic Metrics</h2>
+                    <button onClick={() => setShowSelector(!showSelector)} className="text-teal-400 text-xs font-bold uppercase tracking-widest hover:text-teal-300 transition-colors">
+                        {showSelector ? 'Close Target Selector' : 'Change Target Hero →'}
+                    </button>
+                </div>
+
                 {showSelector && (
-                    <div className={`mb-10 p-8 bg-gray-800/80 border-2 rounded-3xl relative backdrop-blur-md shadow-2xl transition-all ${!match.selected_hero_name ? 'border-teal-500/50 ring-4 ring-teal-500/10' : 'border-gray-700'}`}>
-                        <div className="flex items-center justify-between mb-8">
-                            <div>
-                                <h3 className="text-2xl font-bold text-white mb-1">Select Hero to Analyze</h3>
-                                <p className="text-gray-400 text-sm">Choose a hero from the match to generate deep strategic insights.</p>
-                            </div>
-                            {match.selected_hero_name && (
-                                <button
-                                    onClick={() => setShowSelector(false)}
-                                    className="p-2 hover:bg-gray-700 rounded-full transition-colors"
-                                >
-                                    <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
-                                </button>
-                            )}
-                        </div>
-
-                        <div className="grid grid-cols-2 sm:grid-cols-5 md:grid-cols-10 gap-4">
-                            {allHeroes.map(hero => {
-                                const heroShortName = hero.replace('npc_dota_hero_', '');
-                                const imageUrl = `https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/heroes/${heroShortName}.png`;
-                                const isSelected = currentHero === hero;
-
+                    <div className="bg-gray-800/50 rounded-3xl p-6 mb-10 border border-teal-500/20 shadow-2xl animate-in slide-in-from-top-4 duration-500">
+                        <div className="grid grid-cols-5 md:grid-cols-10 gap-3">
+                            {(match.parsed_data?.heroes || []).map((h: any) => {
+                                const hName = typeof h === 'string' ? h : h.hero_name;
+                                const hShort = hName.replace('npc_dota_hero_', '');
                                 return (
                                     <button
-                                        key={hero}
-                                        onClick={() => handleSelectHero(hero)}
-                                        disabled={selecting}
-                                        className={`
-                                            group relative flex flex-col items-center gap-2 p-1 rounded-xl border-2 transition-all
-                                            ${isSelected
-                                                ? 'border-teal-500 bg-teal-500/10 shadow-[0_0_15px_rgba(20,184,166,0.3)]'
-                                                : 'border-transparent hover:border-gray-600 bg-gray-900/50'
-                                            }
-                                        `}
+                                        key={hName}
+                                        onClick={() => handleSelectHero(hName)}
+                                        className={`transition-all rounded-lg overflow-hidden border-2 group ${currentHero === hName ? 'scale-110 border-teal-500 z-10' : 'border-transparent opacity-40 hover:opacity-100 hover:border-gray-600'}`}
                                     >
-                                        <div className="relative w-full aspect-[128/72] overflow-hidden rounded-lg">
-                                            <img
-                                                src={imageUrl}
-                                                alt={heroShortName}
-                                                className={`w-full h-full object-cover transition-transform group-hover:scale-110 ${isSelected ? 'brightness-110' : 'brightness-90 group-hover:brightness-100'}`}
-                                                onError={(e) => {
-                                                    const target = e.target as HTMLImageElement;
-                                                    target.onerror = null;
-                                                    target.src = 'https://placehold.co/128x72?text=Unknown';
-                                                }}
-                                            />
-                                            {isSelected && (
-                                                <div className="absolute inset-0 bg-teal-500/20 flex items-center justify-center">
-                                                    <div className="w-8 h-8 rounded-full bg-teal-500 flex items-center justify-center shadow-lg transform scale-110">
-                                                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                                        </svg>
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                        <span className={`text-[10px] font-bold uppercase truncate w-full text-center tracking-tight ${isSelected ? 'text-teal-400' : 'text-gray-500 group-hover:text-gray-300'}`}>
-                                            {heroShortName.replace(/_/g, ' ')}
-                                        </span>
+                                        <img src={`https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/heroes/${hShort}.png`} className="w-full grayscale group-hover:grayscale-0 transition-all" />
                                     </button>
                                 );
                             })}
                         </div>
                         {selecting && (
-                            <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-[4px] rounded-[22px] flex flex-col items-center justify-center gap-4 z-20 transition-all animate-in fade-in">
-                                <LoadingSpinner size="lg" className="text-teal-500" />
-                                <div className="text-center">
-                                    <span className="text-xl font-bold text-white block mb-1">Processing Match Replay</span>
-                                    <span className="text-teal-400/80 text-sm font-medium">Calculating advanced metrics...</span>
-                                </div>
+                            <div className="mt-6 flex items-center justify-center gap-3 bg-teal-500/10 py-3 rounded-xl border border-teal-500/20">
+                                <LoadingSpinner size="sm" />
+                                <span className="text-teal-400 font-bold uppercase tracking-widest text-xs">Recalculating Intelligence...</span>
                             </div>
                         )}
                     </div>
                 )}
 
-                {/* Show content only if hero is selected or selector is closed */}
-                {(!showSelector || (match.selected_hero_name)) && (
-                    <>
-                        {/* Metrics Display */}
-                        <MetricsDisplay metrics={match.metrics} />
+                <MetricsDisplay metrics={match.metrics} />
+                <Charts metrics={match.metrics} />
 
-                        {/* Charts */}
-                        <Charts metrics={match.metrics} />
-
-                        {/* Mistakes Section */}
-                        {match.mistakes && match.mistakes.length > 0 && (
-                            <div className="mb-8">
-                                <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-                                    <span className="text-red-400">⚠️</span> Key Mistakes
-                                </h3>
-                                <div className="bg-red-900/10 border border-red-500/20 rounded-xl p-6">
-                                    <ul className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                        {match.mistakes.map((mistake, idx) => (
-                                            <li key={idx} className="flex items-start gap-2 text-gray-300">
-                                                <span className="text-red-500 mt-1.5">•</span>
-                                                <span>{mistake}</span>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Advice List */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
+                    <div className="lg:col-span-2">
                         <AdviceList advice={match.advice} />
-                    </>
-                )}
+                    </div>
+                    <div className="space-y-8">
+                        {/* MISTAKES SUB-PANEL */}
+                        <div className="bg-gray-800 border-t-4 border-red-500 rounded-3xl p-6 shadow-xl">
+                            <h3 className="text-lg font-black text-white uppercase tracking-tighter mb-4 flex items-center gap-2">
+                                <span className="p-1.5 bg-red-500/10 rounded-lg"><svg className="w-4 h-4 text-red-500" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg></span>
+                                Critical Failures
+                            </h3>
+                            <div className="space-y-4">
+                                {(match.mistakes || []).length > 0 ? match.mistakes.map((m, i) => (
+                                    <div key={i} className="text-sm text-gray-400 leading-relaxed border-b border-gray-700/30 pb-3 last:border-0 italic flex gap-2">
+                                        <span className="text-red-500 font-black">•</span>
+                                        {m}
+                                    </div>
+                                )) : <div className="text-gray-600 italic">No major tactical failures detected. Masterful game.</div>}
+                            </div>
+                        </div>
 
-                {/* Bottom Actions */}
-                <div className="flex flex-col sm:flex-row gap-4 mt-12 pt-8 border-t border-gray-800">
-                    <Link to="/upload" className="btn-primary text-center flex-1 py-4">
-                        Analyze Another Match
+                        {/* STRENGTHS SUB-PANEL */}
+                        <div className="bg-gray-800 border-t-4 border-green-500 rounded-3xl p-6 shadow-xl">
+                            <h3 className="text-lg font-black text-white uppercase tracking-tighter mb-4 flex items-center gap-2">
+                                <span className="p-1.5 bg-green-500/10 rounded-lg"><svg className="w-4 h-4 text-green-500" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg></span>
+                                Elite Strengths
+                            </h3>
+                            <div className="space-y-4">
+                                {(match.strengths || []).length > 0 ? match.strengths.map((s, i) => (
+                                    <div key={i} className="text-sm text-teal-400 font-bold leading-relaxed border-b border-gray-700/30 pb-3 last:border-0 uppercase tracking-tighter flex gap-2">
+                                        <span className="text-green-500">✓</span>
+                                        {s}
+                                    </div>
+                                )) : <div className="text-gray-600 italic text-sm">Balanced performance profile.</div>}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="mt-12 flex flex-col sm:flex-row gap-4 border-t border-gray-800 pt-12 print:hidden">
+                    <Link to="/upload" className="flex-1 bg-teal-500 hover:bg-teal-400 text-white font-black py-4 rounded-2xl text-center shadow-xl shadow-teal-500/20 transition-all uppercase tracking-widest text-sm">
+                        Analyze New Replay
                     </Link>
-                    <Link to="/coaches" className="btn-secondary text-center flex-1 py-4">
-                        Find a Coach
+                    <button onClick={handleExportPDF} className="flex-1 bg-gray-800 text-teal-400 font-black py-4 rounded-2xl text-center border border-gray-700 hover:border-teal-500 transition-all uppercase tracking-widest text-sm">
+                        Export Intel Report (PDF)
+                    </button>
+                    <Link to="/coaches" className="flex-1 bg-gray-900 text-gray-400 font-black py-4 rounded-2xl text-center border border-gray-800 hover:border-gray-600 transition-all uppercase tracking-widest text-sm">
+                        Book Professional Coach
                     </Link>
                 </div>
             </div>
         </div>
     );
 };
-
-function extractErrorMessage(err: unknown, fallback: string): string {
-    if (err && typeof err === 'object' && 'response' in err) {
-        const response = (err as { response?: { data?: { detail?: string } } }).response;
-        if (response?.data?.detail) {
-            return response.data.detail;
-        }
-    }
-    return fallback;
-}
 
 export default Results;

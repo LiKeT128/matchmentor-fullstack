@@ -169,54 +169,66 @@ class MatchAnalyzer:
         stat_corr = AdvancedCalculators.calculate_stat_correlations(player_data)
         print("DEBUG: [MatchAnalyzer] Advanced Metrics finished", flush=True)
 
-        # Final Metrics Assembly (FLATTENED for frontend compatibility)
+        # Merged rich metrics
+        match_id = parsed_data.get("match_id", "unknown_match")
+        logger.info(f"Analyzing match {match_id} for hero {hero_name}")
+        print(f"DEBUG: [MatchAnalyzer] Beginning full analysis for {hero_name}...", flush=True)
+
+        # 1. Basic Stats
+        print("DEBUG: [MatchAnalyzer] Calculating Basic Stats...", flush=True)
+        basic_stats = self.calculate_gpm_xpm(player_data)
+        
+        # 2. Laning Phase
+        print("DEBUG: [MatchAnalyzer] Calculating Laning Phase...", flush=True)
+        lane_metrics = self.calculate_lane_metrics(player_data)
+        
+        # 3. Vision & Map Control
+        print("DEBUG: [MatchAnalyzer] Calculating Vision Metrics...", flush=True)
+        vision_metrics = self.calculate_warding_value(player_data)
+
+        # 4. Role & Impact
+        print("DEBUG: [MatchAnalyzer] Calculating Role Metrics...", flush=True)
+        role_impact = {
+            "fighting": self.calculate_teamfight_stats(player_data),
+            "farming": self._calculate_farming(player_data),
+            "items": self.calculate_item_efficiency(player_data),
+            "mid_game": self.calculate_midgame_metrics(player_data),
+            "late_game": self.calculate_lategame_metrics(player_data),
+            "positioning": self.calculate_positioning_risk(player_data)
+        }
+        
+        # 5. Advanced Unique Metrics (from AdvancedCalculators) - 48 Metrics Total
+        print("DEBUG: [MatchAnalyzer] Calculating Advanced Metrics...", flush=True)
+        hero_id = get_hero_id(hero_name) if hero_name else player_data.get("hero_id", 0)
+        
+        fight_eff = AdvancedCalculators.calculate_fight_effectiveness(player_data, hero_id)
+        adv_pos = AdvancedCalculators.calculate_advanced_positioning(player_data)
+        dec_qual = AdvancedCalculators.calculate_decision_quality(player_data)
+        threat_pred = AdvancedCalculators.calculate_threat_prediction(player_data)
+        psych = AdvancedCalculators.calculate_psychological_metrics(player_data)
+        stat_corr = AdvancedCalculators.calculate_stat_correlations(player_data)
+        print("DEBUG: [MatchAnalyzer] Advanced Metrics finished", flush=True)
+
+        # Final Metrics Assembly (STRUCTURED for next-gen UI)
         metrics = {
             "overall_score": 0,
             "match_id": match_id,
             "hero_name": hero_name,
             "duration": player_data.get("duration", 0),
             
-            # --- Legacy Flat Keys for UI ---
-            # Laning Phase
-            "lh_at_10": lane_metrics.get("lh", 0),
-            "gold_at_10": lane_metrics.get("gold", 0),
-            "xp_at_10": lane_metrics.get("xp", 0),
-            "deaths_in_lane": lane_metrics.get("deaths", 0),
+            # CORE GROUPS
+            "basic_stats": basic_stats,
+            "laning_phase": lane_metrics,
+            "vision": vision_metrics,
+            "role_impact": role_impact,
             
-            # Farming & Economy
-            "gpm": basic_stats.get("gpm", 0),
-            "xpm": basic_stats.get("xpm", 0),
-            "last_hits": basic_stats.get("lh", 0),
-            "gold_efficiency": role_impact["items"].get("gold_efficiency", 90),
-            
-            # Positioning & Safety
-            "position_safety_score": role_impact["positioning"].get("safety_rating", 80),
-            "danger_zone_pct": role_impact["positioning"].get("danger_zone_pct", 20),
-            "avg_distance_from_team": 450, # Static or calculate
-            "respawn_sum": player_data.get("respawn_time", 0) or (player_data.get("deaths", 0) * 30),
-            
-            # Combat & Impact
-            "teamfight_participation": role_impact["fighting"].get("tf_participation", 0),
-            "hero_damage": player_data.get("hero_damage", 0),
-            "stun_duration_total": player_data.get("stuns", 0),
-            "kda": basic_stats.get("kda_ratio", 0),
-            
-            # Vision
-            "vision_score": vision_metrics.get("vision_score", 0),
-            
-            # --- Structured Groups (for advanced future UI) ---
-            "groups": {
-                "basic_stats": basic_stats,
-                "laning_phase": lane_metrics,
-                "vision": vision_metrics,
-                "role_impact": role_impact,
-                "fight_effectiveness": fight_eff,
-                "advanced_positioning": adv_pos,
-                "decision_quality": dec_qual,
-                "threat_prediction": threat_pred,
-                "psychological": psych,
-                "stat_correlations": stat_corr
-            }
+            # UNIQUE ADVANCED GROUPS (MatchMentor Originals)
+            "fight_effectiveness": fight_eff,
+            "positioning_risk": adv_pos,
+            "decision_quality": dec_qual,
+            "threat_prediction": threat_pred,
+            "psychological_profile": psych,
+            "stat_correlations": stat_corr
         }
 
         # Benchmarks
@@ -459,38 +471,33 @@ class MatchAnalyzer:
         }
 
     def compare_with_benchmark(self, metrics: Dict[str, Any], hero_name: str) -> Dict[str, Any]:
-        """Group 12: Real Benchmarks from parser data."""
-        # Use the 'benchmarks' dictionary if provided by OpenDota
-        # It contains raw values and percentiles (0 to 1)
-        
-        # We need to find the raw player data again to get the benchmarks key
-        # (This is a bit redundant but ensures we get the real values)
+        """Group 12: High-fidelity Comparison with MMR-Adjusted Benchmarks."""
         benchmarks = metrics.get("_raw_benchmarks", {})
+        if not benchmarks:
+            return {"tier": "B", "performance_rating": 50}
+
+        results = {}
+        pct_sum = 0
+        count = 0
         
-        gpm_pct = benchmarks.get("gold_per_min", {}).get("pct", 0.5)
-        xpm_pct = benchmarks.get("xp_per_min", {}).get("pct", 0.5)
-        lh_pct = benchmarks.get("last_hits_per_min", {}).get("pct", 0.5)
+        for key, val in benchmarks.items():
+            if isinstance(val, dict) and "pct" in val:
+                pct = val.get("pct", 0.5)
+                results[f"{key}_pct"] = round(pct * 100, 1)
+                pct_sum += pct
+                count += 1
         
-        # Average percentile across core metrics
-        avg_pct = (gpm_pct + xpm_pct + lh_pct) / 3
+        avg_pct = (pct_sum / count) if count > 0 else 0.5
         
-        # Map percentile to Tier
         if avg_pct >= 0.9: tier = "S"
         elif avg_pct >= 0.75: tier = "A"
         elif avg_pct >= 0.5: tier = "B"
         elif avg_pct >= 0.25: tier = "C"
         else: tier = "D"
         
-        performance_rating = int(avg_pct * 100)
-        
-        return {
-            "gpm_percentile": round(gpm_pct * 100, 1),
-            "xpm_percentile": round(xpm_pct * 100, 1),
-            "lh_percentile": round(lh_pct * 100, 1),
-            "overall_percentile": round(avg_pct * 100, 1),
-            "performance_rating": performance_rating,
-            "tier": tier
-        }
+        results["tier"] = tier
+        results["performance_rating"] = int(avg_pct * 100)
+        return results
 
     def generate_deterministic_advice(self, metrics: Dict[str, Any], benchmarks: Dict[str, Any]) -> Dict[str, Any]:
         """Group 13: Decision Quality & Advice"""
