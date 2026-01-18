@@ -1,0 +1,170 @@
+{
+  "match_id": "8648645713",
+  "hero_id": 39,
+  "hero_name": "npc_dota_hero_queen_of_pain",
+  "match_duration": 1892,
+  "metrics": {
+    "basic_stats": {
+      "kills": 4,
+      "deaths": 6,
+      "assists": 6,
+      "kd_ratio": 0.67,
+      "kda_ratio": 1.67,
+      "gpm": 296,
+      "xpm": 377,
+      "lh": 77
+    },
+    "cs": {
+      "cs": 82,
+      "cs_per_min": 2.6,
+      "denies": 5,
+      "deny_ratio": 0.061
+    },
+    "fighting": {
+      "teamfight_participation": 25.0,
+      "hero_damage_per_min": 629.0,
+      "damage_per_kill": 4958.0
+    },
+    "items": {
+      "count": 5,
+      "timings": [
+        {
+          "name": "tango",
+          "time": -71
+        },
+        {
+          "name": "faerie_fire",
+          "time": -70
+        },
+        {
+          "name": "branches",
+          "time": -69
+        },
+        {
+          "name": "branches",
+          "time": -69
+        },
+        {
+          "name": "branches",
+          "time": -66
+        },
+        {
+          "name": "bottle",
+          "time": 116
+        },
+        {
+          "name": "ward_sentry",
+          "time": 192
+        },
+        {
+          "name": "ward_observer",
+          "time": 193
+        },
+        {
+          "name": "infused_raindrop",
+          "time": 194
+        },
+        {
+          "name": "voodoo_mask",
+          "time": 379
+        },
+        {
+          "name": "tpscroll",
+          "time": 585
+        },
+        {
+          "name": "diadem",
+          "time": 659
+        },
+        {
+          "name": "boots",
+          "time": 1001
+        },
+        {
+          "name": "dagon",
+          "time": 1034
+        },
+        {
+          "name": "gloves",
+          "time": 1112
+        },
+        {
+          "name": "robe",
+          "time": 1112
+        },
+        {
+          "name": "power_treads",
+          "time": 1117
+        },
+        {
+          "name": "tpscroll",
+          "time": 1128
+        },
+        {
+          "name": "dagon_2",
+          "time": 1299
+        },
+        {
+          "name": "dagon_3",
+          "time": 1519
+        },
+        {
+          "name": "dagon_4",
+          "time": 1688
+        }
+      ],
+      "gold_efficiency": 90
+    },
+    "lane": {
+      "lh_at_10": 23,
+      "gold_at_10": 2169,
+      "xp_at_10": 3355,
+      "level_10m": 7,
+      "lane_efficiency_pct": 43,
+      "deaths_in_lane": 0,
+      "lane_control_score": 51.11111111111111
+    },
+    "mid_game": {
+      "mid_game_kills": 4,
+      "mid_efficiency_score": 76.6,
+      "objectives_participation": 0
+    },
+    "late_game": {
+      "late_game_kills": 0,
+      "high_ground_defense": 0,
+      "buyback_efficiency": 0
+    },
+    "positioning": {
+      "safety_rating": 40,
+      "total_deaths": 6,
+      "deaths_per_100_gpm": 2.03,
+      "danger_zone_pct": 48
+    },
+    "vision": {
+      "wards_placed": 1,
+      "sentries_placed": 1,
+      "vision_score": 20.0,
+      "deward_count": 0
+    },
+    "benchmarks": {
+      "gpm_percentile": 5.1,
+      "xpm_percentile": 5.1,
+      "lh_percentile": 11.3,
+      "overall_percentile": 7.2,
+      "performance_rating": 7,
+      "tier": "D"
+    }
+  },
+  "advice": {
+    "top_mistakes": [
+      "Low farm priority"
+    ],
+    "top_improvements": [
+      "Focus on last hitting in lane"
+    ],
+    "playstyle_analysis": "Balanced",
+    "score": 75
+  },
+  "overall_score": 75,
+  "timestamp": "2026-01-18T13:00:42.573964"
+}

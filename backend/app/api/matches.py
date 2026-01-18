@@ -16,7 +16,6 @@ from app.models.match import Match
 from app.services.auth_service import get_current_user
 from app.services.replay_parser import ReplayParser
 from app.services.match_analyzer import MatchAnalyzer
-from app.services.match_analyzer import MatchAnalyzer
 from app.services.email_service import email_service
 from app.services.opendota_client import OpenDotaClient
 from app.schemas.matches import (
@@ -368,19 +367,58 @@ async def upload_match(
         logger.info("Initializing ReplayParser...")
         parser = ReplayParser()
         
-        logger.info(f"Calling parser.parse_replay on {temp_file}...")
-        parsed = parser.parse_replay(temp_file)
-        logger.info("Parser returned successfully.")
-        
+        parsed = {}
+        try:
+            logger.info(f"Calling parser.parse_replay on {temp_file}...")
+            parsed = parser.parse_replay(temp_file)
+            logger.info("Parser returned successfully.")
+        except Exception as e:
+            logger.warning(f"Local parsing failed: {e}. Attempting fallback via filename Match ID.")
+            # Try to extract match ID from filename (e.g. 1234567890.dem)
+            import re
+            basename = os.path.basename(file.filename)
+            match_id_match = re.search(r'(\d+)', basename)
+            
+            if match_id_match:
+                extracted_id = match_id_match.group(1)
+                logger.info(f"Extracted Match ID from filename: {extracted_id}")
+                
+                # Fetch from OpenDota
+                try:
+                    from app.services.opendota_client import OpenDotaClient
+                    od_client = OpenDotaClient()
+                    od_match = await od_client.get_match(extracted_id)
+                    
+                    if od_match:
+                         # Construct minimal parsed object
+                         parsed = {
+                             "match_id": str(od_match.get("match_id")),
+                             "duration_minutes": od_match.get("duration", 0) / 60,
+                             "result": "WIN" if od_match.get("radiant_win") else "LOSS", # simplified
+                             "hero_name": "unknown", # Will be fixed by hero selection or recover
+                             "heroes": [], # Will be rebuilt
+                             "players": [], # Will be rebuilt
+                             "radiant_win": od_match.get("radiant_win"),
+                             "full_data": od_match # Save full OD response
+                         }
+                         # We need to adapt 'players' from OD format to what our system expects (which is OD format mostly)
+                         parsed["players"] = od_match.get("players", [])
+                         logger.info(f"✓ Recovered match data from OpenDota for ID {extracted_id}")
+                    else:
+                        raise Exception("Match not found in OpenDota")
+                except Exception as inner_e:
+                    logger.error(f"OpenDota fallback failed: {inner_e}")
+                    raise e # Raise original parsing error if fallback fails
+            else:
+                 raise e 
+
         # CRITICAL FIX: Validate that parsing actually succeeded
         # Check if we have meaningful data (not just status/filename)
-        if not parsed or len(parsed.keys()) < 5:
+        if not parsed or len(parsed.keys()) < 3:
             raise Exception("Parser returned empty or incomplete data")
         
         # Check for failure indicators
-        if (parsed.get("match_id") in ["unknown", None] or 
-            parsed.get("hero_name") in ["unknown", None] or
-            parsed.get("duration_minutes", 0) == 0):
+        if parsed.get("match_id") in ["unknown", None]:
             raise Exception("Parser failed to extract basic match information")
         
         # Log what we actually got
@@ -479,11 +517,21 @@ async def upload_match(
         # Analyze match
         # Perform initial analysis (broad)
         analysis = MatchAnalyzer().analyze_match(parsed, hero_name=parsed["hero_name"])
-        if "players" in parsed and "heroes" not in parsed:
-            parsed["heroes"] = [p.get("hero_name", p.get("hero")) for p in parsed["players"]]
-            logger.info(f"Built heroes array: {parsed['heroes']}")
+        
+        # Ensure we construct valid heroes Recovery if missing
+        if "heroes" not in parsed or not parsed["heroes"]:
+             # Extract detailed heroes
+             if "players" in parsed:
+                 parsed["heroes"] = _extract_heroes_from_match(parsed)
+                 logger.info(f"Rebuilt heroes array via extraction: {len(parsed['heroes'])} heroes")
+             else:
+                 logger.warning("No players found to rebuild heroes array")
+
+        heroes_log = parsed.get('heroes')
+        if heroes_log and len(heroes_log) > 0:
+             logger.info(f"Heroes in parsed: Found {len(heroes_log)}")
         else:
-            logger.info(f"Heroes in parsed: {parsed.get('heroes', 'NOT FOUND')}")
+             logger.info("Heroes in parsed: NOT FOUND/EMPTY")
         
         # Prepare full metrics dict
         full_metrics = analysis["metrics"].copy()
@@ -1067,6 +1115,7 @@ class SelectHeroRequest(BaseModel):
     match_id: Optional[str] = None
     hero_name: str
 
+
 @router.post("/{match_id}/select-hero")
 async def select_hero(
     match_id: str,
@@ -1139,16 +1188,26 @@ async def select_hero(
         hero_found = False
         
         for hero in heroes_list:
-            if hero.get("hero_name") == request.hero_name:
-                hero_found = True
-                logger.info(f"[select_hero] STEP 4 OK: Hero found")
-                break
+            if isinstance(hero, dict):
+                 if hero.get("hero_name") == request.hero_name or hero.get("hero") == request.hero_name:
+                    hero_found = True
+                    break
+            elif isinstance(hero, str):
+                 if hero == request.hero_name:
+                      hero_found = True
+                      break
         
         if not hero_found:
-            available = [h.get("hero_name", "?") for h in heroes_list][:5]
-            logger.error(f"[select_hero] STEP 4 FAIL: Hero '{request.hero_name}' not found. Available: {available}")
-            raise ValueError(f"Hero '{request.hero_name}' not in match")
+            # Try approximate matching if exact fail
+            logger.warning(f"Exact match for {request.hero_name} failed. Checking mapped names...")
+            # ... can add mapping logic here if needed
+            
+            available = [h.get("hero_name", h) if isinstance(h, dict) else h for h in heroes_list][:5]
+            logger.error(f"[select_hero] STEP 4 FAIL: Hero '{request.hero_name}' not found. Available: {available}...")
+            raise ValueError(f"Hero '{request.hero_name}' not in this match")
         
+        logger.info(f"[select_hero] STEP 4 OK: Hero found")
+
         # STEP 5: Initialize analyzer
         logger.info(f"[select_hero] STEP 5: Creating MatchAnalyzer...")
         
@@ -1249,3 +1308,4 @@ async def select_hero_legacy(
 ):
     """Legacy support for body-only match_id."""
     return await select_hero(request.match_id, request, current_user, db)
+

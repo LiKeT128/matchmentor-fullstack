@@ -132,3 +132,22 @@ HERO_MAP = {
 def get_hero_name(hero_id: int) -> str:
     """Convert hero_id to hero_name"""
     return HERO_MAP.get(hero_id, f"npc_dota_hero_unknown")
+
+def get_hero_id(hero_name: str) -> int:
+    """
+    Convert hero_name to hero_id with robust matching.
+    Handles 'queenofpain' vs 'queen_of_pain', etc.
+    """
+    if not hero_name:
+        return 0
+        
+    def normalize(name):
+        return name.lower().replace("npc_dota_hero_", "").replace("_", "").replace(" ", "").replace("'", "")
+    
+    target = normalize(hero_name)
+    
+    for hid, hname in HERO_MAP.items():
+        if normalize(hname) == target:
+            return hid
+            
+    return 0
