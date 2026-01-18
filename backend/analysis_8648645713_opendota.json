@@ -153,6 +153,58 @@
       "overall_percentile": 7.2,
       "performance_rating": 7,
       "tier": "D"
+    },
+    "fight_effectiveness": {
+      "dps_in_fights": 0,
+      "avg_damage_taken_tf": 0,
+      "stun_impact_score": 0.0,
+      "solo_kill_participation": 0.4,
+      "death_efficiency": 0.0,
+      "ability_chain_efficiency": 10,
+      "escape_effectiveness": 0.0,
+      "fight_initiation_type": "Reactive"
+    },
+    "advanced_positioning": {
+      "vision_safety_score": 50,
+      "risky_deaths_pct": 0.0,
+      "alone_vulnerability_score": 0.0,
+      "avg_enemy_proximity": 0.0,
+      "deaths_by_phase": {
+        "early": 0,
+        "mid": 0,
+        "late": 0
+      },
+      "hg_disadvantage_deaths": 0,
+      "danger_hotspot": "Neutral"
+    },
+    "decision_quality": {
+      "gold_buying_efficiency": 97.4,
+      "item_adaptation_score": 40,
+      "farm_pressure_efficiency": 72.7,
+      "buyback_discipline": 100,
+      "objective_priority_score": 2,
+      "rotation_success_rate": 65.0,
+      "vision_denial_score": 10
+    },
+    "threat_prediction": {
+      "gank_vulnerability_index": 50,
+      "danger_zone_exposure_pct": 5.7,
+      "throw_probability": "Low",
+      "win_condition_progress": 44.4,
+      "next_threat_window": "Power Spikes"
+    },
+    "psychological": {
+      "risk_score_aggression": 1.7,
+      "mental_fortitude": "Medium",
+      "tilt_probability": "Moderate",
+      "clutch_performance": 75.0
+    },
+    "stat_correlations": {
+      "farm_conversion_rate": 2.36,
+      "objective_participation_ratio": 0.25,
+      "early_core_item_timing": 0,
+      "team_dependency_score": 0.6,
+      "impact_efficiency_rating": 47.3
     }
   },
   "advice": {
@@ -166,5 +218,5 @@
     "score": 75
   },
   "overall_score": 75,
-  "timestamp": "2026-01-18T13:00:42.573964"
+  "timestamp": "2026-01-18T13:28:25.012911"
 }

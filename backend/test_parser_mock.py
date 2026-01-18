@@ -30,7 +30,11 @@ class TestParserMock(unittest.TestCase):
                     "xp_per_min": 500,
                     "last_hits": 40,
                     "denies": 5,
-                    "observer_wards_placed": 2
+                    "observer_wards_placed": 2,
+                    "obs_log": [{"time": 100, "x": 100, "y": 100}, {"time": 200, "x": 120, "y": 120}],
+                    "sen_log": [{"time": 150, "x": 110, "y": 110}],
+                    "gold_t": [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000],
+                    "kills_log": [{"time": 300, "type": "kill"}]
                 }
             ],
             "heroes": [
@@ -61,6 +65,17 @@ class TestParserMock(unittest.TestCase):
         
         vision = metrics.get("vision", {})
         self.assertEqual(vision.get("wards_placed"), 2)
+        
+        # Unique Advanced Groups
+        self.assertIn("fight_effectiveness", metrics)
+        self.assertIn("advanced_positioning", metrics)
+        self.assertIn("decision_quality", metrics)
+        self.assertIn("threat_prediction", metrics)
+        self.assertIn("psychological", metrics)
+        self.assertIn("stat_correlations", metrics)
+        
+        # Specific nested values check
+        self.assertEqual(metrics["psychological"].get("risk_score_aggression"), 7.0) # (5+2)/1
 
 if __name__ == "__main__":
     unittest.main()

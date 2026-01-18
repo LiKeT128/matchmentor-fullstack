@@ -8,6 +8,7 @@ from app.services.benchmark_service import benchmark_service
 from app.services.stage_extractors import LaningStageExtractor
 from app.services.stage_constants import get_position
 from app.services.hero_mapping import get_hero_id, get_hero_name
+from app.services.advanced_calculators import AdvancedCalculators
 
 logger = logging.getLogger(__name__)
 
@@ -170,14 +171,24 @@ class MatchAnalyzer:
         # Group 13: Decision & Advice
         advice_data = self.generate_deterministic_advice(metrics, benchmark_comparison)
         
+        # --- Group 14+: Unique Advanced Metrics (MatchMentor Originals) ---
+        hero_id = get_hero_id(hero_name) if hero_name else player_data.get("hero_id", 0)
+        metrics["fight_effectiveness"] = AdvancedCalculators.calculate_fight_effectiveness(player_data, hero_id)
+        metrics["advanced_positioning"] = AdvancedCalculators.calculate_advanced_positioning(player_data)
+        metrics["decision_quality"] = AdvancedCalculators.calculate_decision_quality(player_data)
+        metrics["threat_prediction"] = AdvancedCalculators.calculate_threat_prediction(player_data)
+        metrics["psychological"] = AdvancedCalculators.calculate_psychological_metrics(player_data)
+        metrics["stat_correlations"] = AdvancedCalculators.calculate_stat_correlations(player_data)
+        
         # Flatten for legacy compatibility where needed, but keep structured for new UI
+
         
         return {
-            "match_id": parsed_data.get("match_id"),
-            "hero_id": player_data.get("hero_id"),
-            "hero_name": active_hero,
-            "match_duration": duration,
-            "metrics": metrics, # Nested structure as per new spec
+            "match_id": str(parsed_data.get("match_id")),
+            "hero_id": hero_id,
+            "hero_name": hero_name,
+            "match_duration": int(player_data.get("duration", 0)),
+            "metrics": metrics,
             "advice": advice_data,
             "overall_score": advice_data.get("score", 75),
             "timestamp": datetime.utcnow().isoformat()

@@ -181,30 +181,56 @@ class OpenDotaParserClient:
                 
                 # --- Metrics Extraction ---
                 # 1. Timeline stats (e.g. at 10 mins)
-                # Find interval event closest to 10 minutes (600s)
-                # Events are roughly sorted by time (or we can assume they are)
                 stat_10m = {}
-                for e in slot_events:
-                    if e.get('type') == 'interval' and e.get('time', 0) >= 600:
-                         stat_10m = e
-                         break
+                gold_t, xp_t, lh_t = [], [], []
                 
-                # 2. Item Timings
-                # Filter purchase events
+                # 2. Advanced Logs
+                obs_log, sen_log = [], []
+                deaths_log, kills_log = [], []
+                
+                # Filter purchase events and other combat logs
                 purchase_log = []
                 unique_items = set()
+                
                 # Sort events by time just in case
                 sorted_events = sorted(slot_events, key=lambda x: x.get('time', 0))
                 
                 for e in sorted_events:
-                    if e.get('type') == 'DOTA_COMBATLOG_PURCHASE':
-                         item_key = e.get('valuename') # item_tango
-                         if item_key and item_key not in unique_items:
-                             unique_items.add(item_key)
-                             purchase_log.append({
-                                 "key": item_key,
-                                 "time": e.get('time', 0)
-                             })
+                    e_type = e.get('type')
+                    e_time = e.get('time', 0)
+                    
+                    if e_type == 'interval':
+                        if e_time >= 600 and not stat_10m:
+                            stat_10m = e
+                        # Build time-series (sampled every minute or interval)
+                        gold_t.append(e.get('gold', 0))
+                        xp_t.append(e.get('xp', 0))
+                        lh_t.append(e.get('lh', 0))
+                        
+                    elif e_type == 'DOTA_COMBATLOG_PURCHASE':
+                        item_key = e.get('valuename')
+                        if item_key and item_key not in unique_items:
+                            unique_items.add(item_key)
+                            purchase_log.append({"key": item_key, "time": e_time})
+                            
+                    elif e_type == 'obs_placed' or (e_type == 'DOTA_COMBATLOG_WARD_PLACEMENT' and 'observer' in e.get('valuename', '').lower()):
+                        obs_log.append({"time": e_time, "x": e.get('x'), "y": e.get('y')})
+                        
+                    elif e_type == 'sen_placed' or (e_type == 'DOTA_COMBATLOG_WARD_PLACEMENT' and 'sentry' in e.get('valuename', '').lower()):
+                        sen_log.append({"time": e_time, "x": e.get('x'), "y": e.get('y')})
+                        
+                    elif e_type == 'DOTA_COMBATLOG_DEATH':
+                        # Hero deaths usually have targets/valuename
+                        deaths_log.append({
+                            "time": e_time, 
+                            "x": e.get('x'), 
+                            "y": e.get('y'),
+                            "attacker": e.get('attackername'),
+                            "nearby_allies": e.get('nearby_allies', 0)
+                        })
+                        
+                    elif e_type == 'DOTA_COMBATLOG_KILL':
+                        kills_log.append({"time": e_time, "x": e.get('x'), "y": e.get('y'), "target": e.get('targetname')})
 
                 player_data = {
                     "player_slot": slot,
@@ -222,15 +248,18 @@ class OpenDotaParserClient:
                     "hero_damage": final_stats.get('hero_damage', 0),
                     "tower_damage": final_stats.get('tower_damage', 0),
                     "hero_healing": final_stats.get('hero_healing', 0),
+                    "net_worth": final_stats.get('net_worth', 0),
                     
                     # Detailed Metrics for Analysis
                     "lh_at_10": stat_10m.get('lh', 0),
                     "item_timings": {item['key']: item['time'] for item in purchase_log},
-                    "obs_placed": final_stats.get('obs_placed', 0),
-                    "sen_placed": final_stats.get('sen_placed', 0),
-                    "camps_stacked": final_stats.get('camps_stacked', 0),
-                    "rune_pickups": final_stats.get('rune_pickups', 0),
-                    "teamfight_participation": final_stats.get('teamfight_participation', 0),
+                    "gold_t": gold_t,
+                    "xp_t": xp_t,
+                    "lh_t": lh_t,
+                    "obs_log": obs_log,
+                    "sen_log": sen_log,
+                    "deaths_log": deaths_log,
+                    "kills_log": kills_log,
                     "stuns": final_stats.get('stuns', 0),
                 }
                 
@@ -244,13 +273,15 @@ class OpenDotaParserClient:
                         "hero_id": hero_id
                     })
         
-        # Extract match metadata from first event or metadata event
+        # Extract match metadata and top-level events
         for event in events:
-            if event.get('type') == 'epilogue':
+            e_type = event.get('type')
+            if e_type == 'epilogue':
                 match_data["duration"] = event.get('duration', 0)
                 match_data["radiant_win"] = event.get('radiant_win', False)
                 match_data["match_id"] = str(event.get('match_id', ''))
-                break
+            elif e_type == 'teamfight':
+                match_data["teamfights"].append(event)
         
         # Validate we have players
         if not match_data["players"]:
