@@ -120,9 +120,13 @@ class MatchAnalyzer:
         # Merge if found
         if rich_player:
             player_data = {**player_data, **rich_player}
-            # Ensure full_data is set for sub-extractors
+            # CRITICAL FIX: Ensure full_data includes BOTH player data AND match-level data
+            # This allows calculators to access radiant_score, dire_score, players, teamfights, etc.
             if "full_data" not in player_data:
-                player_data["full_data"] = rich_player
+                player_data["full_data"] = {
+                    **parsed_data,  # Match-level data (radiant_score, dire_score, players, teamfights)
+                    **rich_player   # Player-specific data (gold_t, lh_t, etc.)
+                }
 
         if not player_data:
              logger.warning(f"No player data found for hero {hero_name} in match {match_id}")
@@ -357,22 +361,44 @@ class MatchAnalyzer:
 
     def calculate_teamfight_stats(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Group 3/9: Teamfight & Fighting"""
-        kills = data.get("kills", 0)
-        assists = data.get("assists", 0)
+        kills = data.get("kills", 0) or 0
+        assists = data.get("assists", 0) or 0
         
-        # Need team total kills for participation
-        # Mocking 40 team kills if not present
-        team_kills = 40 
+        # FIXED: Get real team kills from match data instead of hardcoded 40
+        # Source: radiant_score/dire_score from match, or sum from players
+        full_data = data.get("full_data", {})
+        radiant_score = full_data.get("radiant_score", 0) or data.get("radiant_score", 0) or 0
+        dire_score = full_data.get("dire_score", 0) or data.get("dire_score", 0) or 0
+        
+        # Determine which team player is on
+        player_slot = data.get("player_slot", 0)
+        is_radiant = player_slot < 128  # Slots 0-127 are Radiant
+        
+        team_kills = radiant_score if is_radiant else dire_score
+        
+        # Fallback: sum kills from players on same team if scores unavailable
+        if team_kills == 0:
+            players = full_data.get("players", []) or data.get("players", [])
+            if players:
+                team_kills = sum(
+                    p.get("kills", 0) or 0 for p in players 
+                    if (p.get("player_slot", 0) < 128) == is_radiant
+                )
+        
+        # Final fallback to prevent division by zero
+        team_kills = max(team_kills, 1)
         
         participation = round(((kills + assists) / team_kills) * 100, 1)
         
-        hero_damage = data.get("hero_damage", 0)
-        duration = data.get("duration_minutes", 1)
+        hero_damage = data.get("hero_damage", 0) or 0
+        duration = max(data.get("duration_minutes", 1), 1)
         
         return {
-            "teamfight_participation": participation,
+            "teamfight_participation": min(participation, 100),  # Cap at 100%
             "hero_damage_per_min": round(hero_damage / duration, 0),
-            "damage_per_kill": round(hero_damage / max(kills, 1), 0)
+            "damage_per_kill": round(hero_damage / max(kills, 1), 0),
+            "team_kills": team_kills,  # Include for transparency
+            "_data_source": "radiant_score/dire_score" if (radiant_score or dire_score) else "players_sum"
         }
 
     def calculate_item_efficiency(self, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -386,27 +412,54 @@ class MatchAnalyzer:
         
         # Also check separate 'items' list if available
         if not items and "items" in data:
-            # If it's a list of IDs or objects
             raw_items = data["items"]
-            if raw_items and isinstance(raw_items[0], int):
-                 items = raw_items
-            elif raw_items and isinstance(raw_items[0], dict):
-                 items = [x.get("content") for x in raw_items] # Hypothetical
+            if raw_items:
+                if isinstance(raw_items[0], int):
+                    items = raw_items
+                elif isinstance(raw_items[0], dict):
+                    items = [x.get("content") or x.get("item") for x in raw_items if x]
         
         # Timings
         timings = []
         purchase_log = data.get("purchase_log", [])
-        if purchase_log:
+        if purchase_log and isinstance(purchase_log, list):
             for p in purchase_log:
-                timings.append({
-                    "name": p.get("key"),
-                    "time": p.get("time")
-                })
+                if isinstance(p, dict):
+                    timings.append({
+                        "name": p.get("key"),
+                        "time": p.get("time")
+                    })
+        
+        # FIXED: Calculate gold_efficiency from real net_worth/gold_spent
+        # Instead of hardcoded 90
+        net_worth = data.get("net_worth", 0) or 0
+        gold_spent = data.get("gold_spent", 0) or 0
+        
+        # Calculate efficiency: net_worth / gold_spent * 100
+        # If gold_spent is 0, use total_gold as proxy
+        if gold_spent == 0:
+            total_gold = data.get("total_gold", 0) or 0
+            gold_spent = total_gold
+        
+        gold_efficiency = 0
+        if gold_spent > 0:
+            # Ratio of what you have vs what you earned
+            efficiency_ratio = net_worth / gold_spent
+            # Scale to 0-100 (1.0 ratio = 100%)
+            gold_efficiency = round(min(100, efficiency_ratio * 100), 1)
+        elif net_worth > 0:
+            # Fallback: just use net_worth as indicator
+            # Scale: 20k net worth at 30 min = 100
+            duration_min = max(data.get("duration_minutes", 30), 1)
+            expected_nw = duration_min * 500  # ~500 gold/min average
+            gold_efficiency = round(min(100, (net_worth / max(expected_nw, 1)) * 100), 1)
         
         return {
             "count": len(items),
             "timings": timings,
-            "gold_efficiency": 90 # Placeholder
+            "gold_efficiency": gold_efficiency,  # FIXED: was hardcoded 90
+            "net_worth": net_worth,
+            "gold_spent": gold_spent
         }
 
     def calculate_positioning_risk(self, data: Dict[str, Any]) -> Dict[str, Any]:
