@@ -265,7 +265,9 @@ class MatchAnalyzer:
             "strengths": [a["title"] for a in advice_data.get("top_improvements", []) if a.get("type") == "strength"],
             "weaknesses": [a["title"] for a in advice_data.get("top_improvements", []) if a.get("type") == "weakness"] or advice_data.get("top_mistakes", []),
             "power_spikes": [],
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
+            "items": player_data.get("items", []),
+            "parsed_data": parsed_data
         }
 
     def _calculate_farming(self, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -330,12 +332,14 @@ class MatchAnalyzer:
                  gold_10 = int(data.get("gold_per_min", data.get("gpm", 0)) * 10)
 
         # XP at 10
-        xp_10 = 0
-        xp_t = data.get("xp_t", [])
-        if len(xp_t) > 10:
-            xp_10 = xp_t[10]
-        else:
-            xp_10 = int(data.get("xp_per_min", 0) * 10)
+        xp_10 = data.get("xp_at_10", 0)
+        if xp_10 == 0:
+            xp_t = data.get("xp_t", data.get("xp_adv_t", []))
+            if len(xp_t) > 10:
+                xp_10 = xp_t[10]
+            else:
+                 # Estimate if missing
+                 xp_10 = int(data.get("xp_per_min", 0) * 10)
 
         # Estimate level from XP (simple version of the table)
         # XP thresholds: 2: 230, 3: 600, 4: 1080, 5: 1680, 6: 2300, 10: 5080

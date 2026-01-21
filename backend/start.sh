@@ -13,8 +13,8 @@ start_parser() {
     while true; do
         if [ -f "parser.jar" ]; then
             echo "Starting OpenDota parser on port $PARSER_PORT..."
-            # Increase heap to 2GB to handle large 160MB replays safely
-            java -Xmx2048M -Xms512M -jar parser.jar $PARSER_PORT
+            # Reduce heap to 1280M to leave room for Python/OS on 2GB containers
+            java -Xmx1280M -Xms256M -jar parser.jar $PARSER_PORT
             echo "Parser process exited with code $?. Restarting in 2 seconds..."
             sleep 2
         else

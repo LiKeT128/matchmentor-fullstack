@@ -552,10 +552,15 @@ async def upload_match(
             match.duration_minutes = parsed["duration_minutes"]
             match.result = parsed["result"]
             
-            # Ensure parsed_data has heroes array and steam_id from normalized data
-            final_parsed_data = parsed.get("full_data", {}).copy() if parsed.get("full_data") else {}
+            # Ensure parsed_data has all required fields
+            final_parsed_data = parsed.copy()
             final_parsed_data["heroes"] = parsed.get("heroes", [])
             final_parsed_data["steam_id"] = parsed.get("steam_id")
+            final_parsed_data["duration_seconds"] = parsed.get("duration", 0)
+            
+            # OOM Prevention: Do not store raw_events in database
+            if "raw_events" in final_parsed_data:
+                del final_parsed_data["raw_events"]
             
             match.parsed_data = final_parsed_data
             match.metrics = full_metrics
@@ -581,10 +586,20 @@ async def upload_match(
                 "overall_score": analysis["overall_score"]
             }
         
-        # Ensure parsed_data has heroes array and steam_id from normalized data
-        final_parsed_data = parsed.get("full_data", {}).copy() if parsed.get("full_data") else {}
+        # Prepare final_parsed_data from the parser output
+        #parsed is the match_data dict from odota_parser_client
+        final_parsed_data = parsed.copy()
+        
+        # Ensure heroes array and steam_id are correctly mapped
         final_parsed_data["heroes"] = parsed.get("heroes", [])
         final_parsed_data["steam_id"] = parsed.get("steam_id")
+        
+        # CRITICAL: Fix Duration keys for frontend compatibility
+        final_parsed_data["duration_seconds"] = parsed.get("duration", 0)
+        
+        # OOM Prevention: Do not store raw_events in database
+        if "raw_events" in final_parsed_data:
+            del final_parsed_data["raw_events"]
 
         # Create match record
         match = Match(
@@ -1014,7 +1029,7 @@ class SelectHeroRequest(BaseModel):
     hero_name: str
 
 
-@router.post("/{match_id}/select-hero")
+@router.post("/{match_id}/select-hero", response_model=MatchDetailResponse)
 async def select_hero(
     match_id: str,
     request: SelectHeroRequest,

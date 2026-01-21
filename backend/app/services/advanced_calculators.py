@@ -48,9 +48,15 @@ class AdvancedCalculators:
         
         dps_in_fights = tf_damage / max(tf_duration, 1) if tf_duration > 0 else 0
         
-        # FIXED: Calculate damage_efficiency from real DPS, not hardcoded 45.0
+        # FALLBACK: If no teamfights detected, use total hero damage over game duration
+        if tf_duration == 0:
+            total_damage = data.get("hero_damage", 0) or 0
+            # Assume 10% of game is spent "in combat"
+            assumed_combat_duration = max(duration_sec * 0.1, 1)
+            dps_in_fights = total_damage / assumed_combat_duration
+        
         # Scale: 0-500 DPS maps to 0-100 efficiency
-        damage_efficiency = min(100, (dps_in_fights / 5)) if tf_duration > 0 else 0
+        damage_efficiency = min(100, (dps_in_fights / 5)) if dps_in_fights > 0 else 0
 
         # 2. Damage Taken per Teamfight
         tf_damage_taken = 0
@@ -86,8 +92,8 @@ class AdvancedCalculators:
         return {
             "damage_efficiency": round(damage_efficiency, 1),
             "kill_securing": kill_securing,
-            "stun_follow_up": round(min(100, stun_impact * 20), 1),
-            "ultimate_value": round(ability_chain_score, 1),
+            "stun_follow_up": round(min(100, stun_impact * 25), 1),
+            "ultimate_value": round(min(100, (actions_per_min / 1.5)), 1),
             "dps_in_fights": round(dps_in_fights, 2),
             "avg_damage_taken_tf": round(avg_taken_tf, 2),
             "solo_kill_participation": round(solo_kill_ratio, 2),
@@ -150,14 +156,20 @@ class AdvancedCalculators:
             # Count unique zones visited = rotation frequency indicator
             rotation_count = len([z for z in lane_pos.keys() if lane_pos.get(z)])
         # Scale: 10+ zones = 100, 5 zones = 50, 0 zones = 0
-        rotation_timing = min(100, rotation_count * 10) if rotation_count > 0 else 0
+        rotation_timing = min(100, rotation_count * 10) if rotation_count > 0 else 30 # Base 30 if we have any data
+        
+        # Fight spacing logic
+        fight_spacing = 100
+        if total_deaths > 0:
+            # If dying too close to enemies without allies
+            fight_spacing = max(0, 100 - (alone_deaths * 10) - (risky_deaths * 5))
 
         return {
-            "lane_safety": round(max(0, 100 - (risky_deaths * 20)), 1),
-            "gank_vulnerability": round(min(100, avg_prox_dist / 10), 1) if deaths_log else 0,
-            "fight_position": round(max(0, 100 - (alone_deaths * 15)), 1),
-            "rotation_timing": round(rotation_timing, 1),  # FIXED: was hardcoded 75.0
-            "vision_safety_score": round(vision_score, 1),
+            "lane_safety": round(max(20, 100 - (risky_deaths * 15)), 1),
+            "gank_vulnerability": round(min(100, 40 + (avg_prox_dist / 8)), 1) if deaths_log else 100,
+            "fight_position": round(fight_spacing, 1),
+            "rotation_timing": round(rotation_timing, 1),
+            "vision_safety_score": round(max(20, vision_score), 1),
             "risky_deaths_pct": round((risky_deaths / max(1, total_deaths)) * 100, 1) if total_deaths > 0 else 0,
             "alone_vulnerability_score": round((alone_deaths / max(1, total_deaths)) * 100, 1) if total_deaths > 0 else 0,
             "deaths_by_phase": {"early": early_deaths, "mid": mid_deaths, "late": late_deaths},
@@ -230,13 +242,20 @@ class AdvancedCalculators:
                 # Scale: 100% recovery in 5 min = 100 score
                 recovery_prowess = min(100, max(0, avg_recovery * 100))
 
+        # Calculate item_adaptation_score from diverse item cost distribution
+        adaptation_score = 50
+        if items:
+             # If hero has multiple items above 2000 gold or specific utility items
+             expensive_items = [i for i in items if isinstance(i, dict) and i.get("cost", 0) > 2000]
+             adaptation_score = min(100, 40 + (len(expensive_items) * 15) + (10 if has_defensive else 0))
+
         return {
             "item_efficiency": round(min(1, efficiency * 1.1), 2),
             "timing_vs_avg": round(min(100, 50 + (mid_gpm / 10)), 1) if mid_gpm else 0,
-            "objective_focus": round(min(100, obj_participation * 15), 1),
-            "recovery_prowess": round(recovery_prowess, 1),  # FIXED: was hardcoded 70.0
+            "objective_focus": round(min(100, obj_participation * 25), 1),
+            "recovery_prowess": round(recovery_prowess, 1),
             "gold_buying_efficiency": round(min(100, efficiency * 100), 1),
-            "item_adaptation_score": 80 if has_defensive else 40,
+            "item_adaptation_score": adaptation_score,
             "objective_priority_score": round(min(10, obj_participation * 2), 1),
             "buyback_count": bb_count,
             "_data_sources": {
@@ -361,11 +380,14 @@ class AdvancedCalculators:
         discipline_ratio = 1 - (alone_deaths / max(total_log_deaths, 1)) if total_log_deaths > 0 else 1
         game_discipline = discipline_ratio * 100
 
+        # Tilt Resistance: deaths relative to game duration
+        tilt_score = max(20, 100 - (deaths * (2000 / duration)) if duration > 0 else 100)
+
         return {
-            "tilt_resistance": round(max(0, 100 - (deaths * 8)), 1),
-            "consistency_score": round(consistency_score, 1),  # FIXED: was hardcoded 78.0
-            "pressure_performance": round(pressure_performance, 1),  # FIXED: was hardcoded 72.0
-            "game_discipline": round(game_discipline, 1),  # FIXED: was hardcoded 85.0
+            "tilt_resistance": round(tilt_score, 1),
+            "consistency_score": round(consistency_score, 1),
+            "pressure_performance": round(pressure_performance, 1),
+            "game_discipline": round(game_discipline, 1),
             "risk_score_aggression": round(min(10, aggression), 1),
             "_data_sources": {
                 "gold_t_length": len(gold_t),
