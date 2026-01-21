@@ -35,6 +35,7 @@ public class Main {
     public static void main(String[] args) throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress(Integer.valueOf("5600")), 0);
         server.createContext("/", new MyHandler());
+        server.createContext("/file", new FilePathHandler());
         server.createContext("/healthz", new HealthHandler());
         server.createContext("/blob", new BlobHandler());
         server.setExecutor(java.util.concurrent.Executors.newCachedThreadPool());
@@ -49,8 +50,17 @@ public class Main {
     static class MyHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange t) throws IOException {
-            t.sendResponseHeaders(200, 0);
             InputStream is = t.getRequestBody();
+            
+            // Check if we have a body
+            if (is.available() <= 0 && !"POST".equalsIgnoreCase(t.getRequestMethod())) {
+                t.sendResponseHeaders(200, 2);
+                t.getResponseBody().write("ok".getBytes());
+                t.getResponseBody().close();
+                return;
+            }
+
+            t.sendResponseHeaders(200, 0);
             OutputStream os = t.getResponseBody();
             boolean blob = false;
             if (t.getRequestURI().getRawQuery() != null && t.getRequestURI().getRawQuery().contains("blob")) {
@@ -62,6 +72,46 @@ public class Main {
                 e.printStackTrace();
             }
             os.close();
+        }
+    }
+
+    static class FilePathHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange t) throws IOException {
+            try {
+                Map<String, String> query = splitQuery(t.getRequestURI());
+                String path = query.get("path");
+                
+                if (path == null) {
+                    t.sendResponseHeaders(400, 0);
+                    t.getResponseBody().close();
+                    return;
+                }
+
+                System.err.println("Directly parsing file: " + path);
+                java.io.File file = new java.io.File(path);
+                if (!file.exists()) {
+                    System.err.println("File not found: " + path);
+                    t.sendResponseHeaders(404, 0);
+                    t.getResponseBody().close();
+                    return;
+                }
+
+                t.sendResponseHeaders(200, 0);
+                OutputStream os = t.getResponseBody();
+                boolean blob = t.getRequestURI().getRawQuery() != null && t.getRequestURI().getRawQuery().contains("blob");
+                
+                try (InputStream fis = new java.io.FileInputStream(file)) {
+                    new Parse(fis, os, blob);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+                os.close();
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                t.sendResponseHeaders(500, 0);
+                t.getResponseBody().close();
+            }
         }
     }
 

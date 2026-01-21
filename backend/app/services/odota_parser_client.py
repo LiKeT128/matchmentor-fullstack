@@ -49,18 +49,13 @@ class OpenDotaParserClient:
         logger.info(f"Parsing replay: {file_path} ({file_size_mb:.1f}MB)")
         
         try:
-            # Read file into memory to ensure Content-Length header is set correctly
-            # OpenDota parser (Java HttpServer) requires strictly valid streams and often fails with chunked encoding
-            with open(file_path, 'rb') as f:
-                file_content = f.read()
+            # New strategy: Pass file path to parser instead of whole content
+            # This is 100x more stable for large .dem files (>100MB)
+            logger.info(f"Sending file path to parser: {file_path}")
             
-            logger.info(f"Uploading {len(file_content)} bytes to parser...")
-            
-            # Send raw bytes (no streaming = no chunked encoding)
             response = requests.post(
-                self.parser_url,
-                data=file_content,
-                headers={'Content-Type': 'application/octet-stream'},
+                f"{self.parser_url}/file",
+                params={"path": file_path},
                 timeout=timeout
             )
             
@@ -181,11 +176,12 @@ class OpenDotaParserClient:
                 # --- Metrics Extraction ---
                 # 1. Timeline stats (e.g. at 10 mins)
                 stat_10m = {}
-                gold_t, xp_t, lh_t = [], [], []
+                gold_t, xp_t, lh_t, dn_t = [], [], [], []
                 
                 # 2. Advanced Logs
                 obs_log, sen_log = [], []
                 deaths_log, kills_log = [], []
+                action_count = 0
                 
                 # Filter purchase events and other combat logs
                 purchase_log = []
@@ -205,6 +201,10 @@ class OpenDotaParserClient:
                         gold_t.append(e.get('gold', 0))
                         xp_t.append(e.get('xp', 0))
                         lh_t.append(e.get('lh', 0))
+                        dn_t.append(e.get('denies', 0))
+                        
+                    elif e_type == 'actions':
+                        action_count += 1
                         
                     elif e_type == 'DOTA_COMBATLOG_PURCHASE':
                         item_key = e.get('valuename')
@@ -255,11 +255,16 @@ class OpenDotaParserClient:
                     "gold_t": gold_t,
                     "xp_t": xp_t,
                     "lh_t": lh_t,
+                    "dn_t": dn_t,
                     "obs_log": obs_log,
                     "sen_log": sen_log,
                     "deaths_log": deaths_log,
                     "kills_log": kills_log,
                     "stuns": final_stats.get('stuns', 0),
+                    "actions_per_min": (action_count / (match_data["duration"] / 60)) if match_data["duration"] > 0 else 0,
+                    "roshans_killed": final_stats.get('roshans_killed', 0),
+                    "towers_killed": final_stats.get('towers_killed', 0),
+                    "lane_pos": final_stats.get('lane_pos', {}),
                 }
                 
                 match_data["players"].append(player_data)
