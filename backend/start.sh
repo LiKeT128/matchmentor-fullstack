@@ -8,29 +8,43 @@ PARSER_PORT=${PARSER_PORT:-5600}
 echo "Starting MatchMentor Backend..."
 echo "Using Port: $PORT"
 
-# Verify parser jar exists
-if [ -f "parser.jar" ]; then
-    echo "Parser JAR found: $(ls -lh parser.jar)"
-    
-    # Start parser service in background
-    # Use explicit memory limits and expose logs to stdout
-    echo "Starting OpenDota parser on port $PARSER_PORT..."
-    java -Xmx1536M -Xms256M -jar parser.jar $PARSER_PORT &
-    PARSER_PID=$!
-    echo "Parser started with PID: $PARSER_PID"
-    
-    # Wait for parser to be ready
-    echo "Waiting for parser to initialize..."
-    sleep 5
-    
-    # Test if parser is responding
-    if curl -s http://localhost:$PARSER_PORT > /dev/null; then
+# Function to start the parser in a loop
+start_parser() {
+    while true; do
+        if [ -f "parser.jar" ]; then
+            echo "Starting OpenDota parser on port $PARSER_PORT..."
+            # Increase heap to 2GB to handle large 160MB replays safely
+            java -Xmx2048M -Xms512M -jar parser.jar $PARSER_PORT
+            echo "Parser process exited with code $?. Restarting in 2 seconds..."
+            sleep 2
+        else
+            echo "ERROR: parser.jar not found. Replay parsing will be unavailable."
+            sleep 10
+        fi
+    done
+}
+
+# Start parser service in background loop
+start_parser &
+PARSER_PID=$!
+echo "Parser loop started in background (PID: $PARSER_PID)"
+
+# Wait for parser to be ready
+echo "Waiting for parser to initialize..."
+MAX_RETRIES=10
+RETRY_COUNT=0
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    if curl -s "http://localhost:$PARSER_PORT/healthz" > /dev/null; then
         echo "✓ Parser is ready"
-    else
-        echo "WARNING: Parser may not be ready, but continuing..."
+        break
     fi
-else
-    echo "WARNING: Parser JAR not found! .dem parsing will be unavailable."
+    echo "Waiting for parser... ($((RETRY_COUNT+1))/$MAX_RETRIES)"
+    sleep 3
+    RETRY_COUNT=$((RETRY_COUNT+1))
+done
+
+if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+    echo "WARNING: Parser failed to start after $MAX_RETRIES retries."
 fi
 
 # Start Uvicorn using exec to replace the shell process

@@ -51,7 +51,7 @@ public class Main {
         @Override
         public void handle(HttpExchange t) throws IOException {
             InputStream is = t.getRequestBody();
-            
+
             // Check if we have a body
             if (is.available() <= 0 && !"POST".equalsIgnoreCase(t.getRequestMethod())) {
                 t.sendResponseHeaders(200, 2);
@@ -81,7 +81,7 @@ public class Main {
             try {
                 Map<String, String> query = splitQuery(t.getRequestURI());
                 String path = query.get("path");
-                
+
                 if (path == null) {
                     t.sendResponseHeaders(400, 0);
                     t.getResponseBody().close();
@@ -99,8 +99,9 @@ public class Main {
 
                 t.sendResponseHeaders(200, 0);
                 OutputStream os = t.getResponseBody();
-                boolean blob = t.getRequestURI().getRawQuery() != null && t.getRequestURI().getRawQuery().contains("blob");
-                
+                boolean blob = t.getRequestURI().getRawQuery() != null
+                        && t.getRequestURI().getRawQuery().contains("blob");
+
                 try (InputStream fis = new java.io.FileInputStream(file)) {
                     new Parse(fis, os, blob);
                 } catch (Exception e) {
@@ -152,7 +153,8 @@ public class Main {
                     tStart = System.currentTimeMillis();
                     // Write byte[] to bunzip, get back decompressed byte[]
                     // The C decompressor is a bit faster than Java, 4.3 vs 4.8s
-                    // BZip2CompressorInputStream bz = new BZip2CompressorInputStream(new ByteArrayInputStream(bzIn));
+                    // BZip2CompressorInputStream bz = new BZip2CompressorInputStream(new
+                    // ByteArrayInputStream(bzIn));
                     // bzOut = bz.readAllBytes();
                     // bz.close();
 
@@ -172,7 +174,8 @@ public class Main {
                     String bzError = new String(bz.getErrorStream().readAllBytes());
                     bz.getErrorStream().close();
                     System.err.println(bzError);
-                    if (bzError.toString().contains("bunzip2: Data integrity error when decompressing") || bzError.contains("bunzip2: Compressed file ends unexpectedly")) {
+                    if (bzError.toString().contains("bunzip2: Data integrity error when decompressing")
+                            || bzError.contains("bunzip2: Compressed file ends unexpectedly")) {
                         // Corrupted replay, don't retry
                         t.sendResponseHeaders(204, 0);
                         t.getResponseBody().close();
@@ -200,13 +203,14 @@ public class Main {
             }
             // long tStart = System.currentTimeMillis();
             // String cmd = String.format("""
-            //         curl --max-time 145 --fail -L %s | %s | curl -X POST -T - "localhost:5600?blob"
-            //         """,
-            //         replayUrl.toString(),
-            //         replayUrl.toString().endsWith(".bz2") ? "bunzip2" : "cat");
+            // curl --max-time 145 --fail -L %s | %s | curl -X POST -T -
+            // "localhost:5600?blob"
+            // """,
+            // replayUrl.toString(),
+            // replayUrl.toString().endsWith(".bz2") ? "bunzip2" : "cat");
             // System.err.println(cmd);
             // Process proc = new ProcessBuilder(new String[] { "bash", "-c", cmd })
-            //         .start();
+            // .start();
             // byte[] parseOut = proc.getInputStream().readAllBytes();
             // String error = new String(proc.getErrorStream().readAllBytes());
             // System.err.println(error);
@@ -214,40 +218,43 @@ public class Main {
             // long tEnd = System.currentTimeMillis();
             // System.err.format("download/bunzip2/parse: %sms\n", tEnd - tStart);
             // if (exitCode == 0) {
-            //     t.sendResponseHeaders(200, parseOut.length);
-            //     t.getResponseBody().write(parseOut);
-            //     t.getResponseBody().close();
+            // t.sendResponseHeaders(200, parseOut.length);
+            // t.getResponseBody().write(parseOut);
+            // t.getResponseBody().close();
             // } else {
-            //     // We can send 204 status here and no response if expected error
-            //     // Maybe we can pass the specific error info in the response headers
-            //     int status = 500;
-            //     if (error.toString().contains("curl: (28) Operation timed out")) {
-            //         // Parse took too long, maybe China replay?
-            //         status = 204;
-            //     }
-            //     if (error.toString().contains("curl: (22) The requested URL returned error: 502")) {
-            //         // Google-Edge-Cache: origin retries exhausted Error: 2010
-            //         // Server error, don't retry
-            //         status = 204;
-            //     }
-            //     if (error.toString().contains("bunzip2: Data integrity error when decompressing")) {
-            //         // Corrupted replay, don't retry
-            //         status = 204;
-            //     }
-            //     if (error.toString().contains("bunzip2: Compressed file ends unexpectedly")) {
-            //         // Corrupted replay, don't retry
-            //         status = 204;
-            //     }
-            //     if (error.toString().contains("bunzip2: (stdin) is not a bzip2 file.")) {
-            //         // Tried to unzip a non-bz2 file
-            //         status = 204;
-            //     }
-            //     if (status == 204) {
-            //         t.sendResponseHeaders(status, 0);
-            //         t.getResponseBody().close();
-            //     } else {
-            //         throw new Exception("Unexpected error in parse pipeline");
-            //     }
+            // // We can send 204 status here and no response if expected error
+            // // Maybe we can pass the specific error info in the response headers
+            // int status = 500;
+            // if (error.toString().contains("curl: (28) Operation timed out")) {
+            // // Parse took too long, maybe China replay?
+            // status = 204;
+            // }
+            // if (error.toString().contains("curl: (22) The requested URL returned error:
+            // 502")) {
+            // // Google-Edge-Cache: origin retries exhausted Error: 2010
+            // // Server error, don't retry
+            // status = 204;
+            // }
+            // if (error.toString().contains("bunzip2: Data integrity error when
+            // decompressing")) {
+            // // Corrupted replay, don't retry
+            // status = 204;
+            // }
+            // if (error.toString().contains("bunzip2: Compressed file ends unexpectedly"))
+            // {
+            // // Corrupted replay, don't retry
+            // status = 204;
+            // }
+            // if (error.toString().contains("bunzip2: (stdin) is not a bzip2 file.")) {
+            // // Tried to unzip a non-bz2 file
+            // status = 204;
+            // }
+            // if (status == 204) {
+            // t.sendResponseHeaders(status, 0);
+            // t.getResponseBody().close();
+            // } else {
+            // throw new Exception("Unexpected error in parse pipeline");
+            // }
             // }
         }
     }
@@ -255,11 +262,16 @@ public class Main {
     public static Map<String, String> splitQuery(URI uri) throws UnsupportedEncodingException {
         Map<String, String> query_pairs = new LinkedHashMap<String, String>();
         String query = uri.getQuery();
+        if (query == null || query.isEmpty()) {
+            return query_pairs; // Return empty map if no query string
+        }
         String[] pairs = query.split("&");
         for (String pair : pairs) {
             int idx = pair.indexOf("=");
-            query_pairs.put(URLDecoder.decode(pair.substring(0, idx), "UTF-8"),
-                    URLDecoder.decode(pair.substring(idx + 1), "UTF-8"));
+            if (idx > 0) {
+                query_pairs.put(URLDecoder.decode(pair.substring(0, idx), "UTF-8"),
+                        URLDecoder.decode(pair.substring(idx + 1), "UTF-8"));
+            }
         }
         return query_pairs;
     }

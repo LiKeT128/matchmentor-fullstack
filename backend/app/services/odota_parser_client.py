@@ -49,13 +49,18 @@ class OpenDotaParserClient:
         logger.info(f"Parsing replay: {file_path} ({file_size_mb:.1f}MB)")
         
         try:
-            # New strategy: Pass file path to parser instead of whole content
-            # This is 100x more stable for large .dem files (>100MB)
-            logger.info(f"Sending file path to parser: {file_path}")
+            # Read file into memory and send via POST body
+            # This is the original method that was working before
+            with open(file_path, 'rb') as f:
+                file_content = f.read()
             
+            logger.info(f"Sending {len(file_content)} bytes to parser...")
+            
+            # Send raw bytes to root endpoint
             response = requests.post(
-                f"{self.parser_url}/file",
-                params={"path": file_path},
+                self.parser_url,
+                data=file_content,
+                headers={'Content-Type': 'application/octet-stream'},
                 timeout=timeout
             )
             
