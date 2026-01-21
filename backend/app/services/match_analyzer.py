@@ -301,7 +301,10 @@ class MatchAnalyzer:
             "kd_ratio": round(kills / deaths_safe, 2),
             "kda_ratio": round((kills + assists) / deaths_safe, 2),
             "gpm": gpm,
+            "gold_per_min": gpm,
             "xpm": xpm,
+            "xp_per_min": xpm,
+            "last_hits": lh,
             "lh": lh
         }
 
@@ -564,9 +567,9 @@ class MatchAnalyzer:
         mistakes = []
         improvements = [] # These will be rich objects
         
-        lh = metrics.get("last_hits", 0)
+        lh = metrics.get("lh", metrics.get("last_hits", 0))
         
-        if lh < 100:
+        if lh < 50: # Standardized threshold for early game importance
             msg = "Low farm priority: You need to focus more on securing last hits throughout the game."
             mistakes.append(msg)
             improvements.append({
@@ -577,7 +580,7 @@ class MatchAnalyzer:
                 "type": "improvement"
             })
             
-        gpm = metrics.get("gpm", 0)
+        gpm = metrics.get("gpm", metrics.get("gold_per_min", 0))
         if gpm < 400:
             mistakes.append("Insufficient GPM: Your gold accumulation is below the optimal threshold for your role.")
             improvements.append({

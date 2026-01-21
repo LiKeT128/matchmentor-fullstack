@@ -116,6 +116,16 @@ class OpenDotaParserClient:
             "teamfights": [],
         }
         
+        # Determine duration from the maximum event time
+        max_time = 0
+        for event in events:
+            ev_time = event.get('time', 0)
+            if ev_time > max_time:
+                max_time = ev_time
+        
+        match_duration_seconds = max_time
+        match_data["duration"] = match_duration_seconds
+        
         # Group events by player slot
         player_events = {}
         for event in events:
@@ -246,16 +256,19 @@ class OpenDotaParserClient:
                     "last_hits": final_stats.get('lh', 0),
                     "denies": final_stats.get('denies', 0),
                     "gold": final_stats.get('gold', 0),
-                    "gold_per_min": final_stats.get('gpm', 0),
-                    "xp_per_min": final_stats.get('xpm', 0),
+                    "xp": final_stats.get('xp', 0),
+                    "gold_per_min": int(final_stats.get('gold', 0) / (match_duration_seconds / 60)) if match_duration_seconds > 0 else 0,
+                    "xp_per_min": int(final_stats.get('xp', 0) / (match_duration_seconds / 60)) if match_duration_seconds > 0 else 0,
                     "level": final_stats.get('level', 0),
                     "hero_damage": final_stats.get('hero_damage', 0),
                     "tower_damage": final_stats.get('tower_damage', 0),
                     "hero_healing": final_stats.get('hero_healing', 0),
-                    "net_worth": final_stats.get('net_worth', 0),
+                    "net_worth": final_stats.get('networth', 0),
                     
                     # Detailed Metrics for Analysis
                     "lh_at_10": stat_10m.get('lh', 0),
+                    "gold_at_10": stat_10m.get('gold', 0),
+                    "xp_at_10": stat_10m.get('xp', 0),
                     "item_timings": {item['key']: item['time'] for item in purchase_log},
                     "gold_t": gold_t,
                     "xp_t": xp_t,
@@ -266,7 +279,7 @@ class OpenDotaParserClient:
                     "deaths_log": deaths_log,
                     "kills_log": kills_log,
                     "stuns": final_stats.get('stuns', 0),
-                    "actions_per_min": (action_count / (match_data["duration"] / 60)) if match_data["duration"] > 0 else 0,
+                    "actions_per_min": (action_count / (match_duration_seconds / 60)) if match_duration_seconds > 0 else 0,
                     "roshans_killed": final_stats.get('roshans_killed', 0),
                     "towers_killed": final_stats.get('towers_killed', 0),
                     "lane_pos": final_stats.get('lane_pos', {}),
@@ -286,9 +299,15 @@ class OpenDotaParserClient:
         for event in events:
             e_type = event.get('type')
             if e_type == 'epilogue':
-                match_data["duration"] = event.get('duration', 0)
-                match_data["radiant_win"] = event.get('radiant_win', False)
-                match_data["match_id"] = str(event.get('match_id', ''))
+                # epilogue usually has the match_id and radiant_win in its key field as JSON
+                try:
+                    epilogue_data = json.loads(event.get('key', '{}'))
+                    game_info = epilogue_data.get('gameInfo', {}).get('dota', {})
+                    if game_info:
+                        match_data["radiant_win"] = game_info.get('radiantWin', match_data["radiant_win"])
+                        match_data["match_id"] = str(game_info.get('matchId', match_data["match_id"]))
+                except:
+                    pass
             elif e_type == 'teamfight':
                 match_data["teamfights"].append(event)
         
