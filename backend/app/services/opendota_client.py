@@ -329,6 +329,7 @@ class OpenDotaClient:
                 "hero_display_name": hero_display,
                 "team": team,
                 "position": position,
+                "player_slot": player.get("player_slot", idx),
                 "steam_id": str(player.get("account_id")) if player.get("account_id") else None,
                 "kills": player.get("kills", 0),
                 "deaths": player.get("deaths", 0),
@@ -352,6 +353,28 @@ class OpenDotaClient:
                 "purchase_ward_observer": player.get("purchase_ward_observer", 0),
                 "purchase_ward_sentry": player.get("purchase_ward_sentry", 0),
                 
+                # TIME-SERIES DATA (CRITICAL FOR LANING/PHASES)
+                # These are minute-by-minute arrays: index 10 = minute 10
+                "gold_t": player.get("gold_t", []),
+                "xp_t": player.get("xp_t", []),
+                "lh_t": player.get("lh_t", []),
+                "dn_t": player.get("dn_t", []),
+                
+                # COMBAT/EVENT LOGS
+                "obs_log": player.get("obs_log", []),
+                "sen_log": player.get("sen_log", []),
+                "kills_log": player.get("kills_log", []),
+                "buyback_log": player.get("buyback_log", []),
+                "purchase_log": player.get("purchase_log", []),
+                "lane_pos": player.get("lane_pos", {}),
+                
+                # ADDITIONAL METRICS
+                "actions_per_min": player.get("actions_per_min", 0),
+                "teamfight_participation": player.get("teamfight_participation", 0),
+                "gold_spent": player.get("gold_spent", 0),
+                "roshans_killed": player.get("roshans_killed", 0),
+                "towers_killed": player.get("towers_killed", 0),
+                
                 # Benchmarks & Computed
                 "lh_at_10": ((player.get("benchmarks") or {}).get("lhten") or {}).get("raw", 0),
                 "item_timings": self._extract_item_timings(player.get("purchase_log") or []),
@@ -360,6 +383,7 @@ class OpenDotaClient:
             "match_id": str(data.get("match_id")),
             "duration_minutes": (data.get("duration", 0) // 60),
             "duration_seconds": data.get("duration", 0),
+            "duration": data.get("duration", 0),  # Alias for compatibility
             "radiant_win": data.get("radiant_win"),
             "radiant_score": data.get("radiant_score", 0),
             "dire_score": data.get("dire_score", 0),
@@ -369,6 +393,7 @@ class OpenDotaClient:
             "cluster": data.get("cluster"),
             "heroes": heroes,
             "players": players,  # Keep raw players for compatibility
+            "teamfights": data.get("teamfights", []),  # CRITICAL: Needed for fight analysis
             "picks_bans": data.get("picks_bans", []),
             "od_data": data.get("od_data", {}),
             "source": "opendota",

@@ -128,6 +128,9 @@ class MatchAnalyzer:
                     **rich_player   # Player-specific data (gold_t, lh_t, etc.)
                 }
 
+        # Define match_id early for logging/return in case of missing player data
+        match_id = parsed_data.get("match_id", "unknown_match")
+
         if not player_data:
              logger.warning(f"No player data found for hero {hero_name} in match {match_id}")
              # Return minimal skeleton instead of crashing
@@ -144,14 +147,39 @@ class MatchAnalyzer:
                  "weaknesses": []
              }
 
-        # Ensure duration_minutes is globally available to calculators
-        duration = parsed_data.get("duration") or parsed_data.get("duration_seconds") or 1800
+        # DURATION EXTRACTION WITH FALLBACKS
+        # Priority: duration_seconds > duration > duration_minutes*60 > estimate from gold_t
+        duration = parsed_data.get("duration_seconds") or parsed_data.get("duration") or 0
+        if duration == 0:
+            dm = parsed_data.get("duration_minutes", 0)
+            if dm and dm > 0:
+                duration = dm * 60
+        
+        # Fallback: Estimate from gold_t array (each entry = 1 minute)
+        if duration == 0:
+            gold_t = player_data.get("gold_t", [])
+            if gold_t and len(gold_t) > 0:
+                duration = len(gold_t) * 60
+                logger.info(f"Duration estimated from gold_t array: {duration}s ({len(gold_t)} min)")
+        
+        # Final fallback to prevent division by zero
+        if duration == 0:
+            duration = 1800  # Default 30 min
+            logger.warning(f"Using default duration 1800s - no duration data found")
+        
         player_data["duration_minutes"] = max(duration / 60, 1)
         player_data["duration"] = duration
         
+        # ENSURE TIME-SERIES DATA IS AVAILABLE
+        # Copy from heroes array if not already in player_data (OpenDota lookup case)
+        for field in ["gold_t", "xp_t", "lh_t", "dn_t", "obs_log", "sen_log", "kills_log", "buyback_log", "lane_pos", "purchase_log"]:
+            if field not in player_data or not player_data.get(field):
+                # Try to get from rich_player or from heroes array match
+                if rich_player and field in rich_player:
+                    player_data[field] = rich_player[field]
+        
         # Merged rich metrics
-        match_id = parsed_data.get("match_id", "unknown_match")
-        logger.info(f"Analyzing match {match_id} for hero {hero_name}")
+        logger.info(f"Analyzing match {match_id} for hero {hero_name} (duration: {duration}s)")
         print(f"DEBUG: [MatchAnalyzer] Beginning full analysis for {hero_name}...", flush=True)
 
         # 1. Basic Stats
