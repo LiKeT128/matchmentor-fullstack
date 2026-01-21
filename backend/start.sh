@@ -13,8 +13,8 @@ start_parser() {
     while true; do
         if [ -f "parser.jar" ]; then
             echo "Starting OpenDota parser on port $PARSER_PORT..."
-            # Reduce heap to 1280M to leave room for Python/OS on 2GB containers
-            java -Xmx1280M -Xms256M -jar parser.jar $PARSER_PORT
+            # Reduce heap to 896M to leave room for Python/OS on 2GB containers
+            java -Xmx896M -Xms256M -jar parser.jar $PARSER_PORT
             echo "Parser process exited with code $?. Restarting in 2 seconds..."
             sleep 2
         else
@@ -47,7 +47,8 @@ if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
     echo "WARNING: Parser failed to start after $MAX_RETRIES retries."
 fi
 
-# Start Uvicorn using exec to replace the shell process
+# Start Uvicorn
+# Removed 'exec' so the sidecar parser loop persists and can restart the parser if it dies
 echo "Starting FastAPI on port $PORT..."
-exec uvicorn app.main:app --host 0.0.0.0 --port $PORT
+uvicorn app.main:app --host 0.0.0.0 --port $PORT
 

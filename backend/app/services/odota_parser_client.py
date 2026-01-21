@@ -75,9 +75,11 @@ class OpenDotaParserClient:
                             try:
                                 yield json.loads(line)
                                 count += 1
+                                if count % 10000 == 0:
+                                    logger.info(f"Progress: Streamed {count} events...")
                             except json.JSONDecodeError:
                                 continue
-                    logger.info(f"✓ Streamed {count} events from parser")
+                    logger.info(f"✓ Total: Streamed {count} events from parser")
 
                 # Convert events to structured match data using the generator
                 match_data = self._convert_events_to_match(event_generator())
@@ -101,6 +103,8 @@ class OpenDotaParserClient:
             "duration_seconds": 0,
             "duration_minutes": 0,
             "radiant_win": None,
+            "radiant_score": 0,
+            "dire_score": 0,
             "players": [],
             "heroes": [], 
             "objectives": [],
@@ -170,7 +174,7 @@ class OpenDotaParserClient:
                         })
                         
                     elif ev_type == 'DOTA_COMBATLOG_KILL':
-                        ps["kills_log"].append({"time": ev_time, "x": ev_time, "y": ev_time, "target": event.get('targetname')})
+                        ps["kills_log"].append({"time": ev_time, "x": event.get('x'), "y": event.get('y'), "target": event.get('targetname')})
 
                 # Top-level match data
                 if ev_type == 'epilogue':
@@ -180,6 +184,8 @@ class OpenDotaParserClient:
                         if game_info:
                             match_data["radiant_win"] = game_info.get('radiantWin', match_data["radiant_win"])
                             match_data["match_id"] = str(game_info.get('matchId', match_data["match_id"]))
+                            match_data["radiant_score"] = game_info.get('radiantScore', 0)
+                            match_data["dire_score"] = game_info.get('direScore', 0)
                             if "gameDuration" in game_info:
                                  max_time = max(max_time, game_info["gameDuration"])
                     except: pass
