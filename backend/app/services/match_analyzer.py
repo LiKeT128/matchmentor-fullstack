@@ -323,13 +323,6 @@ class MatchAnalyzer:
             "last_hits": lh,
             "lh": lh
         }
-        
-        if hasattr(self, 'analysis_logger') and self.analysis_logger:
-            self.analysis_logger.log("BASIC_STATS", f"Final Game Stats: GPM={gpm}, XPM={xpm}, LH={lh}, KDA={kills}/{deaths}/{assists}", data={
-                "gpm": gpm, "xpm": xpm, "lh": lh, "kills": kills, "deaths": deaths, "assists": assists
-            })
-        
-        return result
 
     def calculate_lane_metrics(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Group 6: Lane Phase Analysis (7 metrics)"""
@@ -422,15 +415,18 @@ class MatchAnalyzer:
         
         # FIXED: Get real team kills from match data instead of hardcoded 40
         # Source: radiant_score/dire_score from match, or sum from players
-        full_data = data.get("full_data", {})
+        full_data = data.get("full_data", data)  # Fallback to data itself
         radiant_score = full_data.get("radiant_score", 0) or data.get("radiant_score", 0) or 0
         dire_score = full_data.get("dire_score", 0) or data.get("dire_score", 0) or 0
         
         # Determine which team player is on
-        player_slot = data.get("player_slot", 0)
-        is_radiant = player_slot < 128  # Slots 0-127 are Radiant
+        is_radiant = data.get("isRadiant")
+        if is_radiant is None:
+            player_slot = data.get("player_slot", 0)
+            is_radiant = player_slot < 128  # Slots 0-127 are Radiant
         
         team_kills = radiant_score if is_radiant else dire_score
+        enemy_kills = dire_score if is_radiant else radiant_score
         
         # Fallback: sum kills from players on same team if scores unavailable
         if team_kills == 0:
@@ -438,22 +434,56 @@ class MatchAnalyzer:
             if players:
                 team_kills = sum(
                     p.get("kills", 0) or 0 for p in players 
-                    if (p.get("player_slot", 0) < 128) == is_radiant
+                    if p.get("isRadiant", (i < 5 for i in [players.index(p)])) == is_radiant
                 )
         
         # Final fallback to prevent division by zero
         team_kills = max(team_kills, 1)
         
-        participation = round(((kills + assists) / team_kills) * 100, 1)
+        # REAL METRICS CALCULATION
+        # 1. Kill Participation: (kills + assists) / team_kills * 100
+        kill_participation = round(((kills + assists) / team_kills) * 100, 1)
+        kill_participation = min(kill_participation, 100)  # Cap at 100%
         
+        # 2. Kill Securing Rate: kills / (kills + assists) * 100 (how often you get the last hit)
+        total_involvement = kills + assists
+        kill_securing_rate = round((kills / max(total_involvement, 1)) * 100, 1)
+        
+        # 3. Damage Efficiency: hero_damage / net_worth * 100 (damage output relative to farm)
         hero_damage = data.get("hero_damage", 0) or 0
+        net_worth = data.get("net_worth", 0) or data.get("total_gold", 0) or 0
+        damage_efficiency = 0
+        if net_worth > 0:
+            # Ratio: at 10k net worth, 10k damage = 100% efficiency
+            damage_efficiency = round((hero_damage / net_worth) * 100, 1)
+        
+        # 4. Deaths per 10 minutes (normalized death rate)
         duration = max(data.get("duration_minutes", 1), 1)
+        deaths = data.get("deaths", 0) or 0
+        deaths_per_10_min = round((deaths / duration) * 10, 1)
+        
+        # 5. Crowd Control Value (based on stuns - if available)
+        stuns = data.get("stuns", 0) or 0
+        cc_value = min(100, stuns * 10) if stuns > 0 else 0  # Will be 0 if no stun data
+        
+        # Log for debugging
+        if hasattr(self, 'analysis_logger') and self.analysis_logger:
+            self.analysis_logger.log("COMBAT", 
+                f"Combat Effectiveness: KP={kill_participation}%, KSR={kill_securing_rate}%, DMG Eff={damage_efficiency}%",
+                data={"team_kills": team_kills, "kills": kills, "assists": assists, 
+                      "hero_damage": hero_damage, "net_worth": net_worth})
         
         return {
-            "teamfight_participation": min(participation, 100),  # Cap at 100%
+            "teamfight_participation": kill_participation,
+            "kill_participation": kill_participation,
+            "kill_securing_rate": kill_securing_rate,
+            "damage_efficiency": damage_efficiency,
             "hero_damage_per_min": round(hero_damage / duration, 0),
             "damage_per_kill": round(hero_damage / max(kills, 1), 0),
-            "team_kills": team_kills,  # Include for transparency
+            "deaths_per_10_min": deaths_per_10_min,
+            "crowd_control_value": cc_value,
+            "team_kills": team_kills,
+            "enemy_kills": enemy_kills,
             "_data_source": "radiant_score/dire_score" if (radiant_score or dire_score) else "players_sum"
         }
 

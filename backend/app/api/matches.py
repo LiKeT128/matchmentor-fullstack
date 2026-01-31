@@ -296,7 +296,12 @@ async def lookup_match(
 
         heroes = match_data.get("heroes", [])
         radiant_win = match_data.get("radiant_win")
-        result = "WIN" if radiant_win else "LOSS"
+        # Result will be recalculated in select_hero based on hero's team
+        result = "PENDING"
+        
+        # Extract duration in seconds for precision
+        duration_seconds = match_data.get("duration_seconds") or match_data.get("duration") or 0
+        duration_minutes = duration_seconds // 60 if duration_seconds else match_data.get("duration_minutes", 0)
         
         # Create match record
         new_match = Match(
@@ -304,7 +309,7 @@ async def lookup_match(
             player_id=current_user.id,
             steam_id=steam_id,
             hero_name="pending",
-            duration_minutes=match_data.get("duration_minutes", 0),
+            duration_minutes=duration_minutes,
             result=result,
             parsed_data={
                 "heroes": heroes,
@@ -312,6 +317,7 @@ async def lookup_match(
                 "radiant_win": radiant_win,
                 "radiant_score": match_data.get("radiant_score", 0),
                 "dire_score": match_data.get("dire_score", 0),
+                "duration_seconds": duration_seconds,
                 "game_mode": match_data.get("game_mode"),
                 "picks_bans": match_data.get("picks_bans", []),
                 "teamfights": match_data.get("teamfights", []),
@@ -1190,12 +1196,106 @@ async def select_hero(
             print(f"DEBUG: analyze_match FAILED: {e}", flush=True)
             raise ValueError(f"Analysis failed: {str(e)}")
         
-        # STEP 7: Prepare data
-        logger.info(f"[select_hero] STEP 7: Preparing data results...")
+        # STEP 7: Determine CORRECT win/loss based on selected hero's team
+        logger.info(f"[select_hero] STEP 7: Determining correct win/loss for hero...")
+        
+        # Find the selected hero in heroes list to get their team
+        heroes_list = parsed_data.get("heroes", [])
+        players_list = parsed_data.get("players", [])
+        radiant_win = parsed_data.get("radiant_win")
+        
+        hero_is_radiant = None
+        hero_player_data = None
+        
+        # Search in heroes list
+        for hero in heroes_list:
+            if isinstance(hero, dict):
+                h_name = hero.get("hero_name", "")
+                if h_name == request.hero_name or h_name.replace("npc_dota_hero_", "") == request.hero_name:
+                    hero_is_radiant = hero.get("team") == "radiant" or hero.get("isRadiant", False)
+                    # Check player_id to find in players list
+                    p_id = hero.get("player_id")
+                    if p_id is not None and p_id < len(players_list):
+                        hero_player_data = players_list[p_id]
+                    break
+        
+        # Fallback: search in players list directly
+        if hero_is_radiant is None:
+            for idx, player in enumerate(players_list):
+                if not player:
+                    continue
+                p_hero = player.get("hero_name", "") or player.get("hero", "")
+                # Normalize for comparison
+                p_hero_short = p_hero.replace("npc_dota_hero_", "")
+                req_hero_short = request.hero_name.replace("npc_dota_hero_", "")
+                if p_hero_short == req_hero_short or p_hero == request.hero_name:
+                    hero_is_radiant = player.get("isRadiant", idx < 5)
+                    hero_player_data = player
+                    break
+        
+        # Determine correct result
+        if radiant_win is not None and hero_is_radiant is not None:
+            if hero_is_radiant:
+                correct_result = "WIN" if radiant_win else "LOSS"
+            else:
+                correct_result = "LOSS" if radiant_win else "WIN"
+            logger.info(f"[select_hero] Hero team: {'Radiant' if hero_is_radiant else 'Dire'}, Radiant won: {radiant_win}, Result: {correct_result}")
+        else:
+            # Fallback to stored result if we can't determine
+            correct_result = match.result or "UNKNOWN"
+            logger.warning(f"[select_hero] Could not determine team. Using stored result: {correct_result}")
+        
+        # Update match result with correct value
+        match.result = correct_result
+        
+        # STEP 7b: Extract duration in seconds
+        duration_seconds = parsed_data.get("duration_seconds") or parsed_data.get("duration") or (match.duration_minutes * 60)
+        logger.info(f"[select_hero] Duration: {duration_seconds}s ({duration_seconds // 60}:{duration_seconds % 60:02d})")
+        
+        # STEP 7c: Extract item timings from purchase_log
+        item_timings = []
+        if hero_player_data:
+            purchase_log = hero_player_data.get("purchase_log", [])
+            logger.info(f"[select_hero] Found {len(purchase_log)} item purchases for hero")
+            for purchase in purchase_log:
+                if isinstance(purchase, dict):
+                    item_name = purchase.get("key", purchase.get("item", "unknown"))
+                    item_time = purchase.get("time", 0)
+                    # Format time as MM:SS
+                    minutes = abs(item_time) // 60
+                    seconds = abs(item_time) % 60
+                    time_str = f"{'-' if item_time < 0 else ''}{minutes}:{seconds:02d}"
+                    item_timings.append({
+                        "item": item_name.replace("item_", ""),  # Clean prefix
+                        "time": item_time,
+                        "time_display": time_str
+                    })
+        else:
+            logger.warning(f"[select_hero] No player data found for item extraction")
+        
+        # STEP 8: Prepare data
+        logger.info(f"[select_hero] STEP 8: Preparing data results...")
         metrics = analysis.get("metrics", {})
         advice = analysis.get("advice", [])
         
-        # STEP 8: Update match record
+        # ENHANCED LOGGING: Trace actual values for debugging
+        logger.info(f"[select_hero] === ANALYSIS TRACE ===")
+        logger.info(f"[select_hero] Hero: {request.hero_name}, Team: {'Radiant' if hero_is_radiant else 'Dire'}")
+        logger.info(f"[select_hero] Result: {correct_result} (radiant_win={radiant_win})")
+        logger.info(f"[select_hero] Duration: {duration_seconds}s")
+        logger.info(f"[select_hero] Items extracted: {len(item_timings)}")
+        
+        # Log key metrics
+        basic = metrics.get("basic_stats", {})
+        logger.info(f"[select_hero] KDA: {basic.get('kills', 0)}/{basic.get('deaths', 0)}/{basic.get('assists', 0)}")
+        logger.info(f"[select_hero] GPM: {basic.get('gpm', 0)}, XPM: {basic.get('xpm', 0)}")
+        
+        fighting = metrics.get("role_impact", {}).get("fighting", {})
+        logger.info(f"[select_hero] Kill Participation: {fighting.get('kill_participation', 0)}%")
+        logger.info(f"[select_hero] Damage Efficiency: {fighting.get('damage_efficiency', 0)}%")
+        logger.info(f"[select_hero] === END TRACE ===")
+        
+        # STEP 9: Update match record
         logger.info(f"[select_hero] STEP 8: Updating match record fields...")
         
         match.selected_hero_name = request.hero_name
@@ -1239,9 +1339,10 @@ async def select_hero(
             "id": match.id,
             "match_id": match.match_id,
             "hero_name": match.hero_name,
-            "duration_minutes": match.duration_minutes,
-            "duration": (match.parsed_data.get("duration_seconds") if match.parsed_data else 0) or (match.duration_minutes * 60),
-            "result": match.result,
+            "duration_minutes": duration_seconds // 60,
+            "duration": duration_seconds,
+            "duration_display": f"{duration_seconds // 60}:{duration_seconds % 60:02d}",
+            "result": correct_result,
             "metrics": metrics,
             "advice": advice,
             "overall_score": analysis.get("overall_score", 0),
@@ -1250,7 +1351,7 @@ async def select_hero(
             "power_spikes": analysis.get("power_spikes", []),
             "mistakes": analysis.get("mistakes", []),
             "rank_tier": metrics.get("rank_tier", 0),
-            "items": match.parsed_data.get("items", []) if match.parsed_data else [],
+            "items": item_timings,
             "parsed_data": clean_parsed_data,
             "created_at": match.created_at,
             "selected_hero_name": match.selected_hero_name,
