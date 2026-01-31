@@ -17,7 +17,11 @@ from app.api import auth_router, matches_router, coaches_router, payments_router
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(),  # Output to console (Railway)
+        logging.FileHandler("app.log")  # Output to file for my debug/logs endpoint
+    ]
 )
 logger = logging.getLogger(__name__)
 
