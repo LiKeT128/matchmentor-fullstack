@@ -334,14 +334,14 @@ async def lookup_match(
                 "message": "Match found and parsed. Select your hero to analyze."
             }
     
-    except Exception as e:
-        logger.error(f"OpenDota lookup failed for match {match_id}: {str(e)}")
-        
-        # Return actionable error message
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Could not fetch match from OpenDota. The match may not exist or OpenDota is temporarily unavailable. Try again in 30 seconds. Error: {str(e)}"
-        )
+        except Exception as e:
+            logger.error(f"OpenDota lookup failed for match {match_id}: {str(e)}")
+            
+            # Return actionable error message
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Could not fetch match from OpenDota. The match may not exist or OpenDota is temporarily unavailable. Try again in 30 seconds. Error: {str(e)}"
+            )
 
 
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
