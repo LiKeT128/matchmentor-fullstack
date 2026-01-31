@@ -605,6 +605,7 @@ class AdvancedCalculators:
         # REAL LOGIC: Game Discipline - Feeding deaths (deaths without team benefit)
         # Feeding deaths = deaths where team got no objectives/kills within 30s
         kills_log = data.get("kills_log", [])
+        deaths_log = data.get("deaths_log", [])
         tower_damage = data.get("tower_damage", [])
         
         feeding_deaths = 0

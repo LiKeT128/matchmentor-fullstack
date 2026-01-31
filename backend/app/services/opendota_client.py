@@ -284,20 +284,20 @@ class OpenDotaClient:
             
             # CDN expects specific names for some heroes that differ from internal Valve names
             image_mapping = {
-                "zuus": "zeus",
-                "windrunner": "windranger",
-                "necrolyte": "necrophos",
-                "treant": "treant_protector",
-                "obsidian_destroyer": "outworld_destroyer",
-                "rattletrap": "clockwerk",
-                "shredder": "timbersaw",
-                "skeleton_king": "wraith_king",
-                "doom_bringer": "doom",
-                "wisp": "io",
-                "magnataur": "magnus",
-                # "life_stealer": "life_stealer",  # KEEP original for d2vpk
-                "abyssal_underlord": "underlord",
-                "nevermore": "shadow_fiend",
+                # "zuus": "zeus",  # Use internal 'zuus'
+                # "windrunner": "windranger", # Use internal 'windrunner'
+                # "necrolyte": "necrophos", # Use internal 'necrolyte'
+                "treant": "treant_protector", # Check if 'treant' works?
+                # "obsidian_destroyer": "outworld_destroyer", # Use internal
+                # "rattletrap": "clockwerk", # Use internal 'rattletrap'
+                # "shredder": "timbersaw", # Use internal 'shredder'
+                "skeleton_king": "wraith_king", # SK might be WK now?
+                # "doom_bringer": "doom", # Use internal
+                # "wisp": "io", # Use internal
+                # "magnataur": "magnus", # Use internal
+                # "life_stealer": "life_stealer",
+                "abyssal_underlord": "underlord", # Internal is abyssal_underlord
+                # "nevermore": "shadow_fiend", # Use internal 'nevermore'
                 "queenofpain": "queen_of_pain",
                 "vengefulspirit": "vengeful_spirit",
                 "antimage": "antimage",
@@ -320,10 +320,14 @@ class OpenDotaClient:
             lane_role = player.get("lane_role")
             position = "unknown"
             
-            # CRITICAL: Prioritize explicit lane_role if it clearly indicates Mid (2) or Safe (1)
-            # This fixes cases where a mid hero temporarily goes elsewhere
-            if lane_role == 2:
+            # CRITICAL: Prioritize explicit lane_role if available (1=Safe, 2=Mid, 3=Off)
+            # This fixes cases where a hero swaps lanes or lane coordinates are misleading
+            if lane_role == 1:
+                position = "Safe Lane"  # Semantic role 1 = Safe
+            elif lane_role == 2:
                 position = "Mid Lane"
+            elif lane_role == 3:
+                position = "Off Lane"   # Semantic role 3 = Off
             elif lane:
                 if lane == 1:  # Bot
                     position = "Safe Lane" if is_radiant else "Off Lane"
@@ -336,9 +340,9 @@ class OpenDotaClient:
                 elif lane == 5:
                     position = "Roaming"
             
-            # Map lane_role if lane didn't give a specific enough role (and not already set by lane_role check)
-            if position in ("unknown", "Jungle", "Roaming") and lane_role:
-                role_map = {1: "Safe Lane", 2: "Mid Lane", 3: "Off Lane", 4: "Support"}
+            # Fallback if position is still unknown
+            if position == "unknown" and lane_role:
+                role_map = {4: "Support"} # 1,2,3 handled above
                 position = role_map.get(lane_role, position)
 
             # 2. Dynamic Performance Fallback (Crucial for the "Which hero did you play?" modal)
