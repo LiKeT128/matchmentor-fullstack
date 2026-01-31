@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.database import engine, Base
 from app.models import User, Match, Coach, Payment, Booking, Review, Availability  # Ensure all models are loaded
-from app.api import auth_router, matches_router, coaches_router, payments_router, bookings_router, sessions_router, compat_router, demo_router
+from app.api import auth_router, matches_router, coaches_router, payments_router, bookings_router, sessions_router, compat_router, demo_router, debug_router
 
 # Configure logging
 logging.basicConfig(
@@ -120,6 +120,7 @@ app.include_router(bookings_router)
 app.include_router(sessions_router)
 app.include_router(compat_router)
 app.include_router(demo_router)
+app.include_router(debug_router)
 
 
 @app.get("/")

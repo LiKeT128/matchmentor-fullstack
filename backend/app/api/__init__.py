@@ -8,6 +8,7 @@ from app.api.bookings import router as bookings_router
 from app.api.sessions import router as sessions_router
 from app.api.compat import router as compat_router
 from app.api.demo import router as demo_router
+from app.api.debug import router as debug_router
 
 __all__ = [
     "auth_router",
@@ -18,4 +19,5 @@ __all__ = [
     "sessions_router",
     "compat_router",
     "demo_router",
+    "debug_router",
 ]
