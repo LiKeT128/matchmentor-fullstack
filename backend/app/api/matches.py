@@ -262,64 +262,76 @@ async def lookup_match(
             db.delete(existing)
             db.commit()
     
-    # Fetch from OpenDota API with retry logic
-    try:
-        from app.services.opendota_client import get_opendota_client
-        
-        client = get_opendota_client()
-        match_data = await client.get_match(match_id)
-        
-        logger.info(f"✓ OpenDota returned match {match_id}")
-        
-        # Heroes are already resolved by the new client
-        heroes = match_data.get("heroes", [])
-        
-        # Validate: check for unknown heroes
-        unknown_count = sum(1 for h in heroes if h.get("hero_name") == "unknown")
-        if unknown_count > 5:
-            logger.warning(f"OpenDota returned {unknown_count} unknown heroes - hero cache may be empty")
-        
-        # Determine result based on radiant_win (will be refined when user selects hero)
-        radiant_win = match_data.get("radiant_win")
-        result = "WIN" if radiant_win else "LOSS"  # Placeholder, refined on hero selection
-        
-        # Create match record with source tracking
-        new_match = Match(
-            match_id=match_id,
-            player_id=current_user.id,
-            steam_id=steam_id,
-            hero_name="pending",
-            duration_minutes=match_data.get("duration_minutes", 0),
-            result=result,
-            parsed_data={
-                "heroes": heroes,
-                "players": match_data.get("players", []),
-                "radiant_win": radiant_win,
-                "radiant_score": match_data.get("radiant_score", 0),
-                "dire_score": match_data.get("dire_score", 0),
-                "game_mode": match_data.get("game_mode"),
-                "picks_bans": match_data.get("picks_bans", []),
-            },
-            metrics={},  # Initially empty, filled on hero selection
-            advice=[],
-            source="opendota",
-            created_at=datetime.utcnow()
-        )
-        db.add(new_match)
-        db.commit()
-        db.refresh(new_match)
-        
-        logger.info(f"✓ Saved match {match_id} (ID={new_match.id}) from OpenDota for user {current_user.id}")
+        # Fetch from OpenDota API
+        try:
+            from app.services.opendota_client import get_opendota_client
+            client = get_opendota_client()
+            
+            # Initial fetch
+            match_data = await client.get_match(match_id)
+            
+            # CHECK: If data is incomplete (not parsed), request parse and POLL
+            if not client.is_data_complete(match_data):
+                logger.info(f"Match {match_id} data is basic. Requesting deep parse...")
+                await client.request_parse(match_id)
+                
+                # POLLING LOOP: Every 15s for up to 3 minutes (12 attempts)
+                max_attempts = 12
+                for attempt in range(max_attempts):
+                    logger.info(f"Polling OpenDota for {match_id} (Attempt {attempt+1}/{max_attempts})...")
+                    await asyncio.sleep(15)
+                    
+                    match_data = await client.get_match(match_id)
+                    if client.is_data_complete(match_data):
+                        logger.info(f"✓ Match {match_id} finally parsed by OpenDota!")
+                        break
+                    
+                    if attempt == max_attempts - 1:
+                        logger.warning(f"! Polling timed out for {match_id}. Proceeding with basic data.")
+            else:
+                logger.info(f"✓ Match {match_id} is already fully parsed")
 
-        return {
-            "match_id": match_id,
-            "status": "found",
-            "source": "opendota",
-            "heroes_in_match": heroes,
-            "duration_minutes": match_data.get("duration_minutes", 0),
-            "radiant_win": radiant_win,
-            "message": "Match found. Select your hero to analyze."
-        }
+            heroes = match_data.get("heroes", [])
+            radiant_win = match_data.get("radiant_win")
+            result = "WIN" if radiant_win else "LOSS"
+            
+            # Create match record
+            new_match = Match(
+                match_id=match_id,
+                player_id=current_user.id,
+                steam_id=steam_id,
+                hero_name="pending",
+                duration_minutes=match_data.get("duration_minutes", 0),
+                result=result,
+                parsed_data={
+                    "heroes": heroes,
+                    "players": match_data.get("players", []),
+                    "radiant_win": radiant_win,
+                    "radiant_score": match_data.get("radiant_score", 0),
+                    "dire_score": match_data.get("dire_score", 0),
+                    "game_mode": match_data.get("game_mode"),
+                    "picks_bans": match_data.get("picks_bans", []),
+                    "teamfights": match_data.get("teamfights", []),
+                },
+                metrics={},
+                advice=[],
+                source="opendota",
+                created_at=datetime.utcnow()
+            )
+            db.add(new_match)
+            db.commit()
+            db.refresh(new_match)
+            
+            return {
+                "match_id": match_id,
+                "status": "found",
+                "source": "opendota",
+                "is_parsed": client.is_data_complete(match_data),
+                "heroes_in_match": heroes,
+                "duration_minutes": match_data.get("duration_minutes", 0),
+                "radiant_win": radiant_win,
+                "message": "Match found and parsed. Select your hero to analyze."
+            }
     
     except Exception as e:
         logger.error(f"OpenDota lookup failed for match {match_id}: {str(e)}")

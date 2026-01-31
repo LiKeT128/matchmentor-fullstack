@@ -208,6 +208,55 @@ class OpenDotaClient:
         # All retries exhausted
         raise last_error or Exception("OpenDota API request failed after all retries")
     
+    async def request_parse(self, match_id: str) -> bool:
+        """
+        Request OpenDota to parse a match.
+        
+        Returns:
+            True if request was accepted or already in queue.
+        """
+        url = f"{self.BASE_URL}/request/{match_id}"
+        client = await self._get_client()
+        
+        try:
+            logger.info(f"OpenDota POST {url} (requesting deep parse)")
+            resp = await client.post(url)
+            
+            if resp.status_code in (200, 201):
+                logger.info(f"✓ OpenDota parse request accepted for {match_id}")
+                return True
+            elif resp.status_code == 400:
+                # 400 often means it's already in the queue or recently parsed
+                logger.info(f"! OpenDota parse request for {match_id}: Already in queue or recent")
+                return True
+            else:
+                logger.warning(f"OpenDota parse request failed: HTTP {resp.status_code}")
+                return False
+        except Exception as e:
+            logger.error(f"Failed to request parse from OpenDota: {e}")
+            return False
+
+    def is_data_complete(self, match_data: Dict[str, Any]) -> bool:
+        """
+        Check if the match data contains deep parsed metrics.
+        Criteria: Presence of gold_t, purchase_log, or teamfights.
+        """
+        players = match_data.get("heroes", []) or match_data.get("players", [])
+        if not players:
+            return False
+            
+        # Check first couple of players for time-series data
+        sample_players = players[:2]
+        for p in sample_players:
+            if p.get("gold_t") or p.get("purchase_log") or p.get("lane_pos"):
+                return True
+                
+        # Also check if teamfights exist (only in parsed matches)
+        if match_data.get("teamfights"):
+            return True
+            
+        return False
+    
     def _normalize_match_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Normalize OpenDota match data with resolved hero names.
