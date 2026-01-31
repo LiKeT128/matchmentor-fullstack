@@ -542,6 +542,7 @@ class AdvancedCalculators:
         deaths = data.get("deaths", 0) or 0
         assists = data.get("assists", 0) or 0
         kills = data.get("kills", 0) or 0
+        duration = data.get("duration", 1800)
         aggression = (kills + assists) / max(1, deaths) if deaths > 0 else (kills + assists)
         
         # FIXED: Calculate consistency_score from GPM/XPM variance across game phases
