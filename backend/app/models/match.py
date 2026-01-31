@@ -38,6 +38,7 @@ class Match(Base):
     selected_hero_name = Column(String(100), nullable=True)  # User's selected hero
     selected_at = Column(DateTime, nullable=True)  # When hero was selected
     source = Column(String(20), nullable=True)  # Data source: 'opendota' or 'clarity'
+    analysis_logs = Column(JSON, nullable=True)  # Detailed analysis trace
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     
     # Relationships

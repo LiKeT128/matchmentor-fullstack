@@ -4,7 +4,10 @@ Supports both OpenDota API format and Clarity parser format.
 """
 
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .analysis_logger import AnalysisLogger
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -60,16 +63,18 @@ class LaningStageExtractor:
     2. Clarity Parser - full time-series arrays
     """
     
-    def __init__(self, player_data: Dict[str, Any], position: int):
+    def __init__(self, player_data: Dict[str, Any], position: int, analysis_logger: Optional[Any] = None):
         """
         Initialize extractor.
         
         Args:
             player_data: Single player's data from parsed_data['players'][i]
             position: Hero position (1-5)
+            analysis_logger: Optional logger for step-by-step trace
         """
         self.player_data = player_data
         self.position = position
+        self.analysis_logger = analysis_logger
         self.hero = player_data.get('hero') or player_data.get('hero_name', 'Unknown')
         
         # Stage boundaries
@@ -91,16 +96,22 @@ class LaningStageExtractor:
         Returns:
             'opendota' or 'clarity'
         """
-        # OpenDota has benchmarks dictionary
-        if 'benchmarks' in self.player_data:
-            return 'opendota'
-        
         # Clarity has time-series arrays
         gold_t = self.player_data.get('gold_t')
         if gold_t and (isinstance(gold_t, list) or isinstance(gold_t, dict)):
+            if self.analysis_logger:
+                self.analysis_logger.log("LANING", "Detected 'gold_t' time-series - Using Clarity extraction.")
             return 'clarity'
         
+        # OpenDota has benchmarks dictionary
+        if 'benchmarks' in self.player_data:
+            if self.analysis_logger:
+                self.analysis_logger.log("LANING", "No time-series found, but 'benchmarks' present - Using OpenDota estimates.")
+            return 'opendota'
+        
         # Default to opendota if unclear
+        if self.analysis_logger:
+            self.analysis_logger.log("LANING", "No time-series or benchmarks found - Defaulting to legacy estimates.", level="WARNING")
         logger.warning(f"Could not detect data source, defaulting to opendota")
         return 'opendota'
     
@@ -172,7 +183,10 @@ class LaningStageExtractor:
             data_source='opendota'
         )
         
-        logger.info(f"OpenDota extraction complete: score={performance_score:.1f}%")
+        if self.analysis_logger:
+            self.analysis_logger.set_data_source("laning_phase", "opendota_estimates")
+            self.analysis_logger.log("LANING", f"OpenDota-based laning extraction complete. Score: {performance_score:.1f}%")
+
         return result
     
     def _calculate_metrics_opendota(self) -> Dict[str, Any]:
@@ -213,6 +227,13 @@ class LaningStageExtractor:
             metrics['deaths_laning'] = max(1, int(total_deaths * 0.25)) if total_deaths > 0 else 0
             
             metrics['kda'] = f"{metrics['kills']}/{metrics['deaths']}/{metrics['assists']}"
+            
+            if self.analysis_logger:
+                self.analysis_logger.log(
+                    "LANING", 
+                    f"OpenDota Estimates: LH@10={lh_10}, Gold@10={gold_10}, XP@10={xp_10}, GPM={gpm}",
+                    data={"lh_10": lh_10, "gold_10": gold_10, "xp_10": xp_10, "gpm": gpm}
+                )
             
             logger.info(f"Metrics calculated: GPM={gpm}, LH@10={lh_10}, Level@10={level_10}")
             
@@ -275,30 +296,136 @@ class LaningStageExtractor:
             return []
     
     # ========================================================================
-    # CLARITY MODE (time-series, full data) - STUB FOR FUTURE
+    # CLARITY MODE (time-series, full data)
     # ========================================================================
     
     def _extract_from_clarity(self) -> LaningStageData:
         """
-        Extract laning data from Clarity parser format.
-        
-        TODO: Implement when Clarity parser is integrated.
-        For now, returns stub with note.
+        Extract laning data from Clarity parser format using time-series arrays.
         """
-        logger.warning("Clarity mode not yet implemented, using fallback")
+        logger.info("Extracting from Clarity format (Time-Series)")
+        if self.analysis_logger:
+            self.analysis_logger.set_data_source("laning_phase", "clarity_time_series")
         
-        # For now, try to use what data is available
-        metrics = {'note': 'Clarity parser not yet implemented'}
+        # 1. Calculate metrics from time series
+        metrics = self._calculate_metrics_clarity()
         
-        return LaningStageData(
+        # 2. Compare with benchmarks
+        comparison = self._compare_with_benchmarks(metrics)
+        metrics.update(comparison)
+        
+        # 3. Calculate performance score
+        performance_score = self._calculate_performance_score(metrics)
+        
+        # 4. Generate advice
+        advice = self._generate_advice(metrics)
+        
+        # 5. Create snapshots for each minute in the laning phase
+        snapshots = self._create_snapshots_clarity()
+        
+        # 6. Extract events (item purchases)
+        events = self._extract_events_clarity()
+        
+        result = LaningStageData(
             stage='laning',
-            snapshots=[],
-            events=[],
+            snapshots=snapshots,
+            events=events,
             metrics=metrics,
-            advice=['Clarity parser support coming soon'],
-            performance_score=0.0,
+            advice=advice,
+            performance_score=performance_score,
             data_source='clarity'
         )
+        
+        logger.info(f"Clarity extraction complete: score={performance_score:.1f}%")
+        return result
+
+    def _calculate_metrics_clarity(self) -> Dict[str, Any]:
+        """Calculate metrics directly from Clarity time-series arrays."""
+        metrics = {}
+        data = self.player_data
+        
+        # Get time-series arrays
+        lh_t = data.get('lh_t', [])
+        gold_t = data.get('gold_t', [])
+        xp_t = data.get('xp_t', [])
+        
+        # Extract values at 10 minutes (or end of array)
+        idx_10 = min(10, len(lh_t) - 1) if lh_t else 0
+        
+        lh_10 = lh_t[idx_10] if idx_10 < len(lh_t) else 0
+        gold_10 = gold_t[idx_10] if idx_10 < len(gold_t) else 0
+        xp_10 = xp_t[idx_10] if idx_10 < len(xp_t) else 0
+        
+        # Calculate rates
+        duration_min = max(data.get('duration_minutes', 0), 10)
+        total_gold = gold_t[-1] if gold_t else data.get('gold', 0)
+        total_xp = xp_t[-1] if xp_t else data.get('xp', 0)
+        
+        gpm = total_gold / duration_min
+        xpm = total_xp / duration_min
+        
+        metrics['lh_10m'] = lh_10
+        metrics['gpm'] = round(gpm, 1)
+        metrics['xpm'] = round(xpm, 1)
+        metrics['gold_at_10'] = gold_10
+        metrics['xp_at_10'] = xp_10
+        metrics['level_10m'] = self._xp_to_level(xp_10)
+        
+        # Exact laning deaths from deaths_log
+        deaths_log = data.get('deaths_log', [])
+        laning_deaths = len([d for d in deaths_log if d.get('time', 0) <= 600])
+        metrics['deaths_laning'] = laning_deaths
+        
+        metrics['kills'] = data.get('kills', 0)
+        metrics['deaths'] = data.get('deaths', 0)
+        metrics['assists'] = data.get('assists', 0)
+        metrics['kda'] = f"{metrics['kills']}/{metrics['deaths']}/{metrics['assists']}"
+        
+        if self.analysis_logger:
+            self.analysis_logger.log("LANING", f"Extracted metrics at 10m: LH={lh_10}, Gold={gold_10}, XP={xp_10}", data={
+                "lh_10": lh_10, "gold_10": gold_10, "xp_10": xp_10
+            })
+            
+        return metrics
+
+    def _create_snapshots_clarity(self) -> List[Dict]:
+        """Create snapshots from time-series for laning graph."""
+        snapshots = []
+        lh_t = self.player_data.get('lh_t', [])
+        gold_t = self.player_data.get('gold_t', [])
+        xp_t = self.player_data.get('xp_t', [])
+        
+        # Create one snapshot per minute for first 10 mins
+        for m in range(min(11, len(gold_t))):
+            snapshots.append({
+                'minute': m,
+                'timestamp': m * 60,
+                'gold': gold_t[m] if m < len(gold_t) else 0,
+                'xp': xp_t[m] if m < len(xp_t) else 0,
+                'level': self._xp_to_level(xp_t[m]) if m < len(xp_t) else 1,
+                'last_hits': lh_t[m] if m < len(lh_t) else 0,
+                'hero': self.hero
+            })
+        return snapshots
+
+    def _extract_events_clarity(self) -> List[Dict]:
+        """Extract events from Clarity item timings."""
+        events = []
+        item_timings = self.player_data.get('item_timings', {})
+        
+        for item_key, timestamp in item_timings.items():
+            minute = timestamp / 60
+            if minute <= 10:
+                events.append({
+                    'type': 'item',
+                    'minute': round(minute, 2),
+                    'timestamp': timestamp,
+                    'item': item_key,
+                    'timing_status': self._check_item_timing(item_key, timestamp)
+                })
+        
+        events.sort(key=lambda x: x['timestamp'])
+        return events
     
     # ========================================================================
     # SHARED METHODS (used by both modes)

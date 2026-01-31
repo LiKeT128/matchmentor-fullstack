@@ -5,6 +5,7 @@ import { LoadingSpinner } from '../components/LoadingSpinner';
 import { MetricsDisplay } from '../components/MetricsDisplay';
 import { Charts } from '../components/Charts';
 import { AdviceList } from '../components/AdviceList';
+import AnalysisDebugLogs from '../components/AnalysisDebugLogs';
 
 interface Match {
     id: number;
@@ -21,6 +22,7 @@ interface Match {
     strengths: string[];
     weaknesses: string[];
     timestamp: string;
+    analysis_logs?: any;
     parsed_data?: {
         heroes?: (string | { hero_name: string })[] | null;
     };
@@ -44,6 +46,7 @@ export const Results = () => {
     const [selecting, setSelecting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [showSelector, setShowSelector] = useState(false);
+    const [activeTab, setActiveTab] = useState<'metrics' | 'diagnostics'>('metrics');
 
     const fetchMatch = async (id: string) => {
         try {
@@ -204,7 +207,20 @@ export const Results = () => {
                         </div>
 
                         <div className="flex justify-between items-center mb-8 print:hidden">
-                            <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase underline decoration-teal-500/50 underline-offset-8 decoration-4">Strategic Metrics</h2>
+                            <div className="flex gap-6 border-b border-gray-800">
+                                <button
+                                    onClick={() => setActiveTab('metrics')}
+                                    className={`pb-4 text-sm font-black uppercase tracking-widest transition-all ${activeTab === 'metrics' ? 'text-teal-400 border-b-4 border-teal-500' : 'text-gray-500 hover:text-gray-300'}`}
+                                >
+                                    Elite Scouting Report
+                                </button>
+                                <button
+                                    onClick={() => setActiveTab('diagnostics')}
+                                    className={`pb-4 text-sm font-black uppercase tracking-widest transition-all ${activeTab === 'diagnostics' ? 'text-indigo-400 border-b-4 border-indigo-500' : 'text-gray-500 hover:text-gray-300'}`}
+                                >
+                                    Analysis Trace
+                                </button>
+                            </div>
                             <button onClick={() => setShowSelector(!showSelector)} className="text-teal-400 text-xs font-bold uppercase tracking-widest hover:text-teal-300 transition-colors">
                                 {showSelector ? 'Close Target Selector' : 'Change Target Hero →'}
                             </button>
@@ -236,8 +252,14 @@ export const Results = () => {
                             </div>
                         )}
 
-                        <MetricsDisplay metrics={match.metrics} />
-                        <Charts metrics={match.metrics} />
+                        {activeTab === 'metrics' ? (
+                            <>
+                                <MetricsDisplay metrics={match.metrics} />
+                                <Charts metrics={match.metrics} />
+                            </>
+                        ) : (
+                            <AnalysisDebugLogs logs={match.analysis_logs} />
+                        )}
 
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
                             <div className="lg:col-span-2">

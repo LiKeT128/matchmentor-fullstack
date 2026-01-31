@@ -22,7 +22,7 @@ class AdvancedCalculators:
     """
 
     @staticmethod
-    def calculate_fight_effectiveness(data: Dict[str, Any], hero_id: int) -> Dict[str, Any]:
+    def calculate_fight_effectiveness(data: Dict[str, Any], hero_id: int, analysis_logger: Optional[Any] = None) -> Dict[str, Any]:
         """
         Group 1: Fight Effectiveness (8 metrics)
         
@@ -57,6 +57,11 @@ class AdvancedCalculators:
         
         # Scale: 0-500 DPS maps to 0-100 efficiency
         damage_efficiency = min(100, (dps_in_fights / 5)) if dps_in_fights > 0 else 0
+        
+        if analysis_logger:
+            analysis_logger.log("FIGHTING", f"Calculated DPS in Fights: {dps_in_fights:.2f} (TF Damage: {tf_damage}, TF Duration: {tf_duration}s)", data={
+                "tf_damage": tf_damage, "tf_duration": tf_duration, "dps": dps_in_fights
+            })
 
         # 2. Damage Taken per Teamfight
         tf_damage_taken = 0
@@ -109,7 +114,7 @@ class AdvancedCalculators:
         }
 
     @staticmethod
-    def calculate_advanced_positioning(data: Dict[str, Any]) -> Dict[str, Any]:
+    def calculate_advanced_positioning(data: Dict[str, Any], analysis_logger: Optional[Any] = None) -> Dict[str, Any]:
         """
         Group 2: Positioning Risk (8 metrics)
         
@@ -143,6 +148,11 @@ class AdvancedCalculators:
         
         # Enemy Proximity Risk
         avg_prox_dist = sum(d.get("closest_enemy_dist", 500) for d in deaths_log) / max(1, total_deaths) if deaths_log else 500
+        
+        if analysis_logger:
+            analysis_logger.log("POSITIONING", f"Analyzed {total_deaths} deaths. Risky: {risky_deaths}, Alone: {alone_deaths}", data={
+                "risky_deaths": risky_deaths, "alone_deaths": alone_deaths, "avg_prox": avg_prox_dist
+            })
         
         # Deaths by phase (from timestamps)
         early_deaths = len([d for d in deaths_log if d.get("time", 0) <= 600])
@@ -182,7 +192,7 @@ class AdvancedCalculators:
         }
 
     @staticmethod
-    def calculate_decision_quality(data: Dict[str, Any]) -> Dict[str, Any]:
+    def calculate_decision_quality(data: Dict[str, Any], analysis_logger: Optional[Any] = None) -> Dict[str, Any]:
         """
         Group 3: Decision Quality (8 metrics)
         
@@ -267,7 +277,7 @@ class AdvancedCalculators:
         }
 
     @staticmethod
-    def calculate_threat_prediction(data: Dict[str, Any]) -> Dict[str, Any]:
+    def calculate_threat_prediction(data: Dict[str, Any], analysis_logger: Optional[Any] = None) -> Dict[str, Any]:
         """
         Group 4: Threat Prediction (8 metrics)
         
@@ -329,7 +339,7 @@ class AdvancedCalculators:
         }
 
     @staticmethod
-    def calculate_psychological_metrics(data: Dict[str, Any]) -> Dict[str, Any]:
+    def calculate_psychological_metrics(data: Dict[str, Any], analysis_logger: Optional[Any] = None) -> Dict[str, Any]:
         """
         Group 6: Psychological Metrics (8 metrics)
         
@@ -379,6 +389,11 @@ class AdvancedCalculators:
         total_log_deaths = len(deaths_log) if deaths_log else deaths
         discipline_ratio = 1 - (alone_deaths / max(total_log_deaths, 1)) if total_log_deaths > 0 else 1
         game_discipline = discipline_ratio * 100
+        
+        if analysis_logger:
+            analysis_logger.log("PSYCHOLOGY", f"Consistency Score: {consistency_score:.1f}, Discipline: {game_discipline:.1f}", data={
+                "consistency": consistency_score, "discipline": game_discipline
+            })
 
         # Tilt Resistance: deaths relative to game duration
         tilt_score = max(20, 100 - (deaths * (2000 / duration)) if duration > 0 else 100)
@@ -397,7 +412,7 @@ class AdvancedCalculators:
         }
 
     @staticmethod
-    def calculate_stat_correlations(data: Dict[str, Any]) -> Dict[str, Any]:
+    def calculate_stat_correlations(data: Dict[str, Any], analysis_logger: Optional[Any] = None) -> Dict[str, Any]:
         """
         Group 5: Stat Correlations (8 metrics)
         

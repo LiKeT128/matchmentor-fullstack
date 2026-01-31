@@ -9,6 +9,7 @@ from app.services.stage_extractors import LaningStageExtractor
 from app.services.stage_constants import get_position
 from app.services.hero_mapping import get_hero_id, get_hero_name
 from app.services.advanced_calculators import AdvancedCalculators
+from app.services.analysis_logger import AnalysisLogger
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +131,11 @@ class MatchAnalyzer:
 
         # Define match_id early for logging/return in case of missing player data
         match_id = parsed_data.get("match_id", "unknown_match")
+        
+        # Initialize analysis logger for granular trace
+        analysis_logger = AnalysisLogger(str(match_id), hero_name or "Unknown")
+        analysis_logger.log("START", f"Beginning analysis for {hero_name}")
+        self.analysis_logger = analysis_logger
 
         if not player_data:
              logger.warning(f"No player data found for hero {hero_name} in match {match_id}")
@@ -188,7 +194,13 @@ class MatchAnalyzer:
         
         # 2. Laning Phase
         print("DEBUG: [MatchAnalyzer] Calculating Laning Phase...", flush=True)
-        lane_metrics = self.calculate_lane_metrics(player_data)
+        # Use new LaningStageExtractor for real data/tracing
+        hero_id = get_hero_id(hero_name) if hero_name else player_data.get("hero_id", 0)
+        pos_id = get_position(hero_id)
+        lane_extractor = LaningStageExtractor(player_data, pos_id, analysis_logger=analysis_logger)
+        lane_result = lane_extractor.extract()
+        lane_metrics = lane_result.metrics
+        analysis_logger.log("LANING", f"Laning analysis complete via {lane_result.data_source}")
         
         # 3. Vision & Map Control
         print("DEBUG: [MatchAnalyzer] Calculating Vision Metrics...", flush=True)
@@ -209,12 +221,12 @@ class MatchAnalyzer:
         print("DEBUG: [MatchAnalyzer] Calculating Advanced Metrics...", flush=True)
         hero_id = get_hero_id(hero_name) if hero_name else player_data.get("hero_id", 0)
         
-        fight_eff = AdvancedCalculators.calculate_fight_effectiveness(player_data, hero_id)
-        adv_pos = AdvancedCalculators.calculate_advanced_positioning(player_data)
-        dec_qual = AdvancedCalculators.calculate_decision_quality(player_data)
-        threat_pred = AdvancedCalculators.calculate_threat_prediction(player_data)
-        psych = AdvancedCalculators.calculate_psychological_metrics(player_data)
-        stat_corr = AdvancedCalculators.calculate_stat_correlations(player_data)
+        fight_eff = AdvancedCalculators.calculate_fight_effectiveness(player_data, hero_id, analysis_logger=analysis_logger)
+        adv_pos = AdvancedCalculators.calculate_advanced_positioning(player_data, analysis_logger=analysis_logger)
+        dec_qual = AdvancedCalculators.calculate_decision_quality(player_data, analysis_logger=analysis_logger)
+        threat_pred = AdvancedCalculators.calculate_threat_prediction(player_data, analysis_logger=analysis_logger)
+        psych = AdvancedCalculators.calculate_psychological_metrics(player_data, analysis_logger=analysis_logger)
+        stat_corr = AdvancedCalculators.calculate_stat_correlations(player_data, analysis_logger=analysis_logger)
         print("DEBUG: [MatchAnalyzer] Advanced Metrics finished", flush=True)
 
         # Final Metrics Assembly (STRUCTURED for next-gen UI)
@@ -236,7 +248,8 @@ class MatchAnalyzer:
             "decision_quality": dec_qual,
             "threat_prediction": threat_pred,
             "psychological_profile": psych,
-            "stat_correlations": stat_corr
+            "stat_correlations": stat_corr,
+            "analysis_logs": analysis_logger.get_summary()
         }
 
         # Benchmarks
@@ -267,7 +280,8 @@ class MatchAnalyzer:
             "power_spikes": [],
             "timestamp": datetime.utcnow().isoformat(),
             "items": player_data.get("items", []),
-            "parsed_data": parsed_data
+            "parsed_data": parsed_data,
+            "analysis_logs": analysis_logger.get_summary()
         }
 
     def _calculate_farming(self, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -309,6 +323,13 @@ class MatchAnalyzer:
             "last_hits": lh,
             "lh": lh
         }
+        
+        if hasattr(self, 'analysis_logger') and self.analysis_logger:
+            self.analysis_logger.log("BASIC_STATS", f"Final Game Stats: GPM={gpm}, XPM={xpm}, LH={lh}, KDA={kills}/{deaths}/{assists}", data={
+                "gpm": gpm, "xpm": xpm, "lh": lh, "kills": kills, "deaths": deaths, "assists": assists
+            })
+        
+        return result
 
     def calculate_lane_metrics(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Group 6: Lane Phase Analysis (7 metrics)"""
@@ -529,10 +550,17 @@ class MatchAnalyzer:
         unique_pos = set([(w.get("x"), w.get("y")) for w in obs_log])
         coverage = (len(unique_pos) / 5) * 100 if total_obs > 0 else 0
         
+        vision_score = round(min(100, coverage), 1)
+        
+        if hasattr(self, 'analysis_logger') and self.analysis_logger:
+            self.analysis_logger.log("VISION", f"Vision Analysis: Obs={total_obs}, Sen={total_sen}, Score={vision_score}%", data={
+                "obs": total_obs, "sen": total_sen, "score": vision_score
+            })
+
         return {
             "wards_placed": total_obs,
             "sentries_placed": total_sen,
-            "vision_score": round(min(100, coverage), 1),
+            "vision_score": vision_score,
             "deward_count": data.get("item_uses", {}).get("item_ward_sentry", 0) # Proxy
         }
 

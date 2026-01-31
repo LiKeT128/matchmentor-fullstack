@@ -1185,11 +1185,13 @@ async def select_hero(
         match.hero_name = request.hero_name
         match.metrics = metrics
         match.advice = advice
+        match.analysis_logs = analysis.get("analysis_logs")
         
         # Explicitly mark as modified for JSON update tracking
         from sqlalchemy.orm.attributes import flag_modified
         flag_modified(match, "metrics")
         flag_modified(match, "advice")
+        flag_modified(match, "analysis_logs")
         
         logger.info(f"[select_hero] STEP 8 OK: Record updated in session")
         
