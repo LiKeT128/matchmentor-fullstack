@@ -295,7 +295,7 @@ class OpenDotaClient:
                 "doom_bringer": "doom",
                 "wisp": "io",
                 "magnataur": "magnus",
-                "life_stealer": "lifestealer",
+                # "life_stealer": "life_stealer",  # KEEP original for d2vpk
                 "abyssal_underlord": "underlord",
                 "nevermore": "shadow_fiend",
                 "queenofpain": "queen_of_pain",
@@ -313,14 +313,18 @@ class OpenDotaClient:
             team = "radiant" if is_radiant else "dire"
             
             # Position Detection Strategy:
-            # 1. Use 'lane' and 'lane_role' if available from OpenDota (rare in basic lookups)
-            # 2. Fallback: Dynamic GPM-based ranking within team to solve "Lich Mid" issues
+            # 1. Use 'lane' and 'lane_role' if available from OpenDota
+            # 2. Fallback: Dynamic GPM-based ranking within team
             
             lane = player.get("lane")
             lane_role = player.get("lane_role")
             position = "unknown"
             
-            if lane:
+            # CRITICAL: Prioritize explicit lane_role if it clearly indicates Mid (2) or Safe (1)
+            # This fixes cases where a mid hero temporarily goes elsewhere
+            if lane_role == 2:
+                position = "Mid Lane"
+            elif lane:
                 if lane == 1:  # Bot
                     position = "Safe Lane" if is_radiant else "Off Lane"
                 elif lane == 2:  # Mid
@@ -332,7 +336,7 @@ class OpenDotaClient:
                 elif lane == 5:
                     position = "Roaming"
             
-            # Map lane_role if lane didn't give a specific enough role
+            # Map lane_role if lane didn't give a specific enough role (and not already set by lane_role check)
             if position in ("unknown", "Jungle", "Roaming") and lane_role:
                 role_map = {1: "Safe Lane", 2: "Mid Lane", 3: "Off Lane", 4: "Support"}
                 position = role_map.get(lane_role, position)

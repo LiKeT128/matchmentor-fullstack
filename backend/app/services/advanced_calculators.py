@@ -526,7 +526,7 @@ class AdvancedCalculators:
                 "obs_log_count": len(obs_log),
                 "sen_log_count": len(sen_log),
                 "lane_pos_samples": total_pos_time,
-                "stuns_total": stuns,
+                "stuns_total": data.get("stuns", 0),
                 "rosh_kills": rosh_kills
             }
         }
