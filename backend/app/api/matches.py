@@ -12,6 +12,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, File, UploadFile, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
+import traceback
 
 from app.database import get_db
 from app.models.user import User
@@ -334,14 +335,17 @@ async def lookup_match(
             "radiant_win": radiant_win,
             "message": "Match found and parsed. Select your hero to analyze."
         }
-
+    
     except Exception as e:
         logger.error(f"OpenDota lookup failed for match {match_id}: {str(e)}")
+        # Print to stdout just in case info logger is suppressed
+        print(f"OPENDOTA LOOKUP ERROR: {str(e)}")
+        traceback.print_exc()
         
         # Return actionable error message
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Could not fetch match from OpenDota. The match may not exist or OpenDota is temporarily unavailable. Try again in 30 seconds. Error: {str(e)}"
+            detail=f"Could not fetch match from OpenDota (Error: {str(e)}). Match may not exist or be private."
         )
 
 

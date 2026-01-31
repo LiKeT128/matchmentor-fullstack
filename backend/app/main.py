@@ -4,8 +4,10 @@ import os
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+import traceback
 
 from app.config import get_settings
 from app.database import engine, Base
@@ -110,6 +112,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# GLOBAL EXCEPTION HANDLER MIDDLEWARE for debugging
+@app.middleware("http")
+async def catch_exceptions_middleware(request: Request, call_next):
+    try:
+        return await call_next(request)
+    except Exception as e:
+        print(f"!!! CRITICAL UNHANDLED EXCEPTION ON {request.url} !!!")
+        traceback.print_exc()  # Ensures output to Railway logs (stdout)
+        logger.error(f"Unhandled exception: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"Internal Server Error: {str(e)}", "trace": traceback.format_exc()}
+        )
 
 # Include routers
 app.include_router(auth_router)
