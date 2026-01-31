@@ -1,17 +1,30 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 import os
 import logging
-from app.services.auth_service import get_current_user
-from app.models.user import User
+from typing import Optional
+from app.services.auth_service import get_db
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/debug", tags=["debug"])
 
 @router.get("/logs")
-async def get_logs(lines: int = 100, current_user: User = Depends(get_current_user)):
+async def get_logs(
+    lines: int = 100, 
+    key: str = Query(None), 
+    db: Session = Depends(get_db)
+):
     """Returns the last N lines of the application log."""
-    # Check if user is admin or authorized (for now just check if logged in)
-    # In production, this should be behind strict admin check
+    # Simple hardcoded key for easy browser access
+    if key == "matchmentor_debug_2026":
+        pass
+    else:
+        # If no key, we'd normally check JWT, but since browser tabs don't have it, 
+        # we'll just require the key for simplicity in this "dummies" mode.
+        raise HTTPException(
+            status_code=401, 
+            detail="Access denied. Add '?key=matchmentor_debug_2026' to the URL."
+        )
     
     log_file = "app.log" # Default log file if we are using one
     if not os.path.exists(log_file):
